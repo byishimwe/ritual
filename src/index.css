@@ -1,3 +1,10 @@
+:root {
+  --ritual-backdrop: #3e3c38;
+  --ritual-amber: #cba16c;
+  --ritual-ivory: #f1ebdf;
+  color-scheme: dark;
+}
+
 * {
   margin: 0;
   padding: 0;
@@ -11,14 +18,124 @@ body,
   height: 100%;
   overflow: hidden;
   overscroll-behavior: none;
-  background: #0d0e10;
+  background: var(--ritual-backdrop);
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  color: var(--ritual-ivory);
 }
 
-canvas {
+.ritual-root {
+  position: fixed;
+  inset: 0;
+  background: var(--ritual-backdrop);
+}
+
+.ritual-canvas {
   display: block;
   touch-action: none;
+  cursor: default;
+}
+
+/* ------------------------------------------------------------------ loading */
+
+.ritual-loader {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  background: var(--ritual-backdrop);
+  transition: opacity 500ms ease;
+  z-index: 10;
+}
+
+.ritual-loader.is-hiding {
+  opacity: 0;
+}
+
+.ritual-loader__word {
+  font-size: 15px;
+  letter-spacing: 0.52em;
+  text-transform: uppercase;
+  color: rgba(241, 235, 223, 0.72);
+  padding-left: 0.52em;
+}
+
+.ritual-loader__rule {
+  width: 132px;
+  height: 1px;
+  background: rgba(241, 235, 223, 0.14);
+  overflow: hidden;
+}
+
+.ritual-loader__rule span {
+  display: block;
+  height: 100%;
+  background: var(--ritual-amber);
+  transform-origin: left center;
+  transition: transform 320ms ease;
+}
+
+/* -------------------------------------------------------------- fatal error */
+
+.ritual-fatal {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #26241f;
+  padding: 24px;
+  z-index: 20;
+}
+
+.ritual-fatal__card {
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  text-align: left;
+}
+
+.ritual-fatal__card h1 {
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+.ritual-fatal__card p {
+  font-size: 14px;
+  line-height: 1.6;
+  color: rgba(241, 235, 223, 0.66);
+}
+
+.ritual-fatal__card pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: rgba(241, 235, 223, 0.5);
+  background: rgba(0, 0, 0, 0.24);
+  padding: 10px 12px;
+  border-radius: 4px;
+}
+
+.ritual-fatal__card button {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 9px 16px;
+  font-size: 13px;
+  color: #26241f;
+  background: var(--ritual-amber);
+  border: 0;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.ritual-fatal__card button:hover {
+  background: #d8ae78;
 }
