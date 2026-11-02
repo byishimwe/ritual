@@ -9,40 +9,6 @@ import type { ExperienceEvent } from '../domain/events';
 import { dispatchCommand, engine } from '../state/experienceStore';
 import { useServices } from './services';
 
-/* eslint-disable @typescript-eslint/no-unused-vars */
-
-/**
- * Internal fake used only when three-stdlib is unavailable in this process;
- * the real component is always provided by Drei in the browser build.
- * Kept so the catch branch compiles even if that import fails in this runtime.
- * Exported so this module always has a live reference to these symbols.
- */
-export function fakeControls() {
-  return {
-    enable: () => {},
-    disable: () => {},
-    target: new THREE.Vector3(0, 0.2, 0.02),
-    minAzimuthAngle: 0,
-    maxAzimuthAngle: 0,
-    minPolarAngle: 0,
-    maxPolarAngle: 0,
-    minDistance: 0,
-    maxDistance: 0,
-  } as unknown as OrbitControlsImpl;
-}
-
-/**
- * Placeholder for the Drei controls stub that is only actually instantiated
- * when three-stdlib is unavailable. Registered onto the R3F module loader
- * below; never called directly.
- * Exported so this module always has a live reference to these symbols.
- */
-export function DreiControls() {
-  return null;
-}
-
-/* eslint-enable @typescript-eslint/no-unused-vars */
-
 const deg = (value: number) => (value * Math.PI) / 180;
 
 type Shot = {
@@ -204,7 +170,27 @@ export function CameraRig() {
   useEffect(() => {
     const applyShot = (shot: Shot, force: boolean): boolean => {
       const controls = controlsRef.current;
-      if (!controls || services.reducedMotion) return false;
+      if (!controls) return false;
+
+      // In reduced-motion mode, non-essential cinematic moves are suppressed.
+      // Essential reset shots immediately restore the canonical hero composition
+      // without disorienting transitions.
+      if (services.reducedMotion) {
+        if (!force) return false;
+        tween.current?.kill();
+        tween.current = null;
+        const targetVector = new THREE.Vector3(...shot.target);
+        controls.target.copy(targetVector);
+        camera.position
+          .copy(targetVector)
+          .add(
+            new THREE.Vector3().setFromSpherical(
+              new THREE.Spherical(shot.distance, shot.polar, shot.azimuth),
+            ),
+          );
+        controls.update();
+        return true;
+      }
 
       const current = new THREE.Spherical().setFromVector3(
         camera.position.clone().sub(controls.target),
@@ -258,15 +244,16 @@ export function CameraRig() {
     };
 
     const requestShot = (eventType: ExperienceEvent['type'], shot: Shot) => {
-      if (services.reducedMotion) return;
-
       // Reset is the one move that must always find its way home, even from
-      // the far side of the orbit and even if a prop was held.
+      // the far side of the orbit, even if a prop was held, and even under
+      // prefers-reduced-motion.
       if (eventType === 'RESET_STARTED' || eventType === 'RESET_COMPLETED') {
         pending.current = null;
         applyShot(shot, true);
         return;
       }
+
+      if (services.reducedMotion) return;
 
       if (holdingObject()) {
         pending.current = {

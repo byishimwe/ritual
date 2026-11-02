@@ -228,7 +228,9 @@ async function prepare(page: Page): Promise<void> {
 
   await clickWorld(page, 0, 0.2739, 0.1602);
   await waitForMachine(page, 'IDLE_ON', 30000);
-  await page.waitForTimeout(300);
+  // Power-on camera transition lasts 1.15 s; wait for the framing to settle
+  // before subsequent clicks project coordinates against the camera.
+  await page.waitForTimeout(1200);
 }
 
 async function alignCup(page: Page): Promise<void> {
@@ -339,7 +341,8 @@ test('misaligned cup misses the coffee entirely', async ({ page }) => {
   await boot(page);
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
-  await waitForMachine(page, 'READY_TO_POUR');
+  await waitForMachine(page, 'GRINDING');
+  await waitForMachine(page, 'READY_TO_POUR', 30000);
 
   // Leave the cup where it started, clearly off the receiving position.
   await clickWorld(page, 0.036, 0.2739, 0.1602);
@@ -365,7 +368,8 @@ test('unattended pouring fills the cup, then overflows and exhausts the batch', 
   await boot(page);
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
-  await waitForMachine(page, 'READY_TO_POUR');
+  await waitForMachine(page, 'GRINDING');
+  await waitForMachine(page, 'READY_TO_POUR', 30000);
   await alignCup(page);
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
@@ -524,7 +528,8 @@ test('overflow stays on the stage when the cup is moved, and reset clears it', a
   await boot(page);
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
-  await waitForMachine(page, 'READY_TO_POUR');
+  await waitForMachine(page, 'GRINDING');
+  await waitForMachine(page, 'READY_TO_POUR', 30000);
   await alignCup(page);
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
@@ -565,3 +570,54 @@ test('overflow stays on the stage when the cup is moved, and reset clears it', a
   await waitForMachine(page, 'OFF');
   expect((await snapshot(page)).coffee.spills).toHaveLength(0);
 });
+
+test('reduced motion suppresses cinematic shots but restores hero camera on reset', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await boot(page);
+  await setCamera(page, 140, 65, 1.6);
+  const rotated = await orbit(page);
+  expect(rotated.azimuth).toBeCloseTo((140 * Math.PI) / 180, 2);
+
+  await page.keyboard.press('r');
+  await waitForMachine(page, 'OFF');
+  await page.waitForTimeout(300);
+
+  const reset = await orbit(page);
+  expect(reset.azimuth).toBeCloseTo((30 * Math.PI) / 180, 2);
+  expect(reset.polar).toBeCloseTo((74 * Math.PI) / 180, 2);
+  expect(reset.distance).toBeCloseTo(1.12, 2);
+  expect(reset.target.x).toBeCloseTo(0, 2);
+  expect(reset.target.y).toBeCloseTo(0.2, 2);
+  expect(reset.target.z).toBeCloseTo(0.02, 2);
+
+  const state = await snapshot(page);
+  expect(state.machine).toBe('OFF');
+  expect(state.hopper).toBe('CLOSED');
+  expect(state.beansLoaded).toBe(false);
+});
+
+test('corrupted or missing asset produces the recovery card and offers reload', async ({ page }) => {
+  await page.route('**/coffee_machine.glb', (route) => route.abort());
+  await page.goto('/');
+  const fatalCard = page.locator('.ritual-fatal');
+  await expect(fatalCard).toBeVisible({ timeout: 15000 });
+  await expect(fatalCard.locator('h1')).toHaveText('Ritual could not start');
+  await expect(fatalCard.locator('button')).toHaveText('Reload the experience');
+  expect(await page.locator('canvas').count()).toBe(0);
+});
+
+test('contract asset failure dispatches fatal recovery state with error details', async ({ page }) => {
+  await page.goto('/');
+  await page.evaluate(() => {
+    window.dispatchEvent(
+      new CustomEvent<string>('ritual:asset-failure', {
+        detail: 'Asset contract violation: Missing required node "btnPower"',
+      }),
+    );
+  });
+  const fatalCard = page.locator('.ritual-fatal');
+  await expect(fatalCard).toBeVisible({ timeout: 5000 });
+  await expect(fatalCard.locator('pre')).toContainText('Missing required node "btnPower"');
+  await expect(fatalCard.locator('button')).toBeVisible();
+});
+

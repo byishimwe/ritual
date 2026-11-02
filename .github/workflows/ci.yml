@@ -45,3 +45,13 @@ jobs:
 
       - name: Browser end-to-end tests
         run: npm run test:e2e
+
+      - name: Upload Playwright artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-results
+          path: |
+            test-results/
+            screenshots/
+          retention-days: 7

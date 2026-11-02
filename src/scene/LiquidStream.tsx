@@ -186,8 +186,14 @@ export function LiquidStream() {
     }
 
     const cup = services.rig.cup;
+    if (cup) {
+      cup.getWorldPosition(cupWorld);
+    }
+
+    // Evaluate capture fraction directly from the authoritative domain state
+    // so presentation and simulation are perfectly synchronized.
     const capture = cup
-      ? captureFractionAt(cupWorld, ANCHORS.coffeeExit)
+      ? captureFractionAt(snapshot.cup.position, ANCHORS.coffeeExit)
       : 0;
 
     let cupX: number = ANCHORS.coffeeExit.x;
@@ -195,7 +201,6 @@ export function LiquidStream() {
     let rimY: number = GRILLE_TOP;
     let landingY = GRILLE_TOP;
     if (cup) {
-      cup.getWorldPosition(cupWorld);
       cupX = cupWorld.x;
       cupZ = cupWorld.z;
       rimY = cupWorld.y + CUP.localRimY - 0.002;
