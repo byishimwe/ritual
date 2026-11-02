@@ -1,15 +1,14 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Browser verification for the exhibition build.
+ * Browser-level integration test suite (RITUAL-06 §automated-testing).
  *
- * The system Chrome is used (`channel: 'chrome'`) so the harness needs no
- * separate browser download; SwiftShader is allowed so WebGL works on headless
- * machines without a GPU.
+ * Runs against the Vite dev server with SwiftShader software WebGL under CI,
+ * and Chrome under local verification.
  */
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 240_000,
+  timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
@@ -20,13 +19,23 @@ export default defineConfig({
     baseURL: 'http://localhost:5183',
     viewport: { width: 1440, height: 861 },
     launchOptions: {
-      args: ['--enable-unsafe-swiftshader', '--use-gl=angle', '--hide-scrollbars'],
+      args: process.env.CI
+        ? [
+            '--no-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu-watchdog',
+            '--use-gl=angle',
+            '--use-angle=swiftshader',
+            '--enable-unsafe-swiftshader',
+            '--hide-scrollbars',
+          ]
+        : ['--enable-unsafe-swiftshader', '--use-gl=angle', '--hide-scrollbars'],
     },
   },
   webServer: {
-    command: 'npm run dev -- --port 5183 --strictPort',
+    command: 'npm run dev -- --host 127.0.0.1 --port 5183 --strictPort',
     url: 'http://localhost:5183',
-    reuseExistingServer: true,
+    reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
 });

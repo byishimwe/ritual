@@ -163,7 +163,7 @@ async function dragWorld(
   await page.mouse.up();
 }
 
-async function waitForMachine(page: Page, machine: string, timeout = 20000): Promise<void> {
+async function waitForMachine(page: Page, machine: string, timeout = 30000): Promise<void> {
   await page.waitForFunction(
     (expected) =>
       (window as never as { __ritual: { engine: { getState: () => { machine: string } } } }).__ritual.engine
@@ -201,11 +201,11 @@ async function clickLid(page: Page): Promise<void> {
 /** Open hopper → transfer beans → close → power on. */
 async function prepare(page: Page): Promise<void> {
   await clickLid(page);
-  await page.waitForFunction(() =>
-    (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } }).__ritual.engine
-      .getState()
-      .hopper === 'OPEN',
-  );
+  await page.waitForFunction(() => {
+    const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
+      .__ritual.engine.getState();
+    return s.hopper === 'OPEN' && s.hopperMotion === 'IDLE';
+  }, null, { timeout: 30000 });
   await page.waitForTimeout(900);
 
   await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 30);
@@ -213,20 +213,22 @@ async function prepare(page: Page): Promise<void> {
     () =>
       (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } }).__ritual.engine
         .getState()
-        .beanSupply === 'LOADED',
+        .beansLoaded,
     null,
-    { timeout: 15000 },
+    { timeout: 30000 },
   );
 
   await clickLid(page);
   await page.waitForFunction(() => {
-    const state = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
+    const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
       .__ritual.engine.getState();
-    return state.hopper === 'CLOSED' && state.hopperMotion === 'IDLE';
-  });
+    return s.hopper === 'CLOSED' && s.hopperMotion === 'IDLE';
+  }, null, { timeout: 30000 });
+  await page.waitForTimeout(300);
 
   await clickWorld(page, 0, 0.2739, 0.1602);
-  await waitForMachine(page, 'IDLE_ON');
+  await waitForMachine(page, 'IDLE_ON', 30000);
+  await page.waitForTimeout(300);
 }
 
 async function alignCup(page: Page): Promise<void> {
@@ -276,11 +278,11 @@ test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) =>
   await page.waitForTimeout(1400);
   await page.screenshot({ path: 'screenshots/12-grinding.png' });
 
-  await waitForMachine(page, 'BREWING', 12000);
+  await waitForMachine(page, 'BREWING');
   await page.waitForTimeout(900);
   await page.screenshot({ path: 'screenshots/13-brewing.png' });
 
-  await waitForMachine(page, 'READY_TO_POUR', 12000);
+  await waitForMachine(page, 'READY_TO_POUR');
   await page.screenshot({ path: 'screenshots/14-ready.png' });
 
   await alignCup(page);
@@ -337,12 +339,18 @@ test('misaligned cup misses the coffee entirely', async ({ page }) => {
   await boot(page);
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
-  await waitForMachine(page, 'READY_TO_POUR', 20000);
+  await waitForMachine(page, 'READY_TO_POUR');
 
   // Leave the cup where it started, clearly off the receiving position.
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'POURING');
-  await page.waitForTimeout(2200);
+  await page.waitForFunction(
+    () =>
+      (window as never as { __ritual: { engine: { getState: () => { coffee: { missedVolume: number } } } } })
+        .__ritual.engine.getState().coffee.missedVolume > 0.15,
+    null,
+    { timeout: 30000 },
+  );
   await page.screenshot({ path: 'screenshots/17-miss.png' });
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'COMPLETE');
@@ -357,15 +365,21 @@ test('unattended pouring fills the cup, then overflows and exhausts the batch', 
   await boot(page);
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
-  await waitForMachine(page, 'READY_TO_POUR', 20000);
+  await waitForMachine(page, 'READY_TO_POUR');
   await alignCup(page);
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'POURING');
-  await page.waitForTimeout(9200);
+  await page.waitForFunction(
+    () =>
+      (window as never as { __ritual: { engine: { getState: () => { coffee: { overflowVolume: number } } } } })
+        .__ritual.engine.getState().coffee.overflowVolume > 0.05,
+    null,
+    { timeout: 30000 },
+  );
   await page.screenshot({ path: 'screenshots/18-overflow.png' });
 
-  await waitForMachine(page, 'COMPLETE', 20000);
+  await waitForMachine(page, 'COMPLETE');
   const state = await snapshot(page);
   expect(state.coffee.cupVolume).toBeCloseTo(1, 3);
   expect(state.coffee.overflowVolume).toBeGreaterThan(0.15);
@@ -510,7 +524,7 @@ test('overflow stays on the stage when the cup is moved, and reset clears it', a
   await boot(page);
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
-  await waitForMachine(page, 'READY_TO_POUR', 20000);
+  await waitForMachine(page, 'READY_TO_POUR');
   await alignCup(page);
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);

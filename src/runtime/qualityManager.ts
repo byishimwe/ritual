@@ -20,6 +20,13 @@ function resolveTier(): QualityTier {
   const override = new URLSearchParams(window.location.search).get('quality');
   if (override === 'high' || override === 'medium' || override === 'low') return override;
 
+  if (typeof navigator !== 'undefined') {
+    const ua = navigator.userAgent || '';
+    if (ua.includes('HeadlessChrome') || ua.includes('Headless') || /SwiftShader/i.test(ua)) {
+      return 'low';
+    }
+  }
+
   const cores = navigator.hardwareConcurrency ?? 4;
   const memory = (navigator as unknown as { deviceMemory?: number }).deviceMemory ?? 8;
   if (cores >= 8 && memory >= 8) return 'high';
