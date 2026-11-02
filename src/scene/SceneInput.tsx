@@ -21,6 +21,9 @@ interface Gesture {
   startY: number;
   moved: boolean;
   buttonAccepted: boolean;
+  /** Pointer-to-object offset captured on grab, so nothing jumps under the hand. */
+  offsetX: number;
+  offsetZ: number;
 }
 
 const CUP_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(CUP.padTopY + CUP.dragLift));
@@ -48,7 +51,7 @@ function contains(owner: THREE.Object3D, candidate: THREE.Object3D): boolean {
  * never both drag the cup and orbit the camera. When nothing interactive is
  * hit, the event is left untouched and the camera behaves normally.
  */
-export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boolean) => void }) {
+export function SceneInput() {
   const services = useServices();
   const gl = useThree((state) => state.gl);
   const camera = useThree((state) => state.camera);
@@ -58,8 +61,6 @@ export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boo
   const planePoint = useMemo(() => new THREE.Vector3(), []);
   const gesture = useRef<Gesture | null>(null);
   const lastScrape = useRef(0);
-  const gestureCallback = useRef(onGestureChange);
-  gestureCallback.current = onGestureChange;
 
   useEffect(() => {
     const element = gl.domElement;
@@ -86,10 +87,14 @@ export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boo
       return null;
     };
 
-    const updateCup = (event: PointerEvent) => {
+    const updateCup = (event: PointerEvent, offsetX = 0, offsetZ = 0) => {
       toNdc(event);
       if (!raycaster.ray.intersectPlane(CUP_PLANE, planePoint)) return;
-      dispatchCommand({ type: 'SET_CUP_POSITION', x: planePoint.x, z: planePoint.z });
+      dispatchCommand({
+        type: 'SET_CUP_POSITION',
+        x: planePoint.x + offsetX,
+        z: planePoint.z + offsetZ,
+      });
     };
 
     const updateJar = (event: PointerEvent) => {
@@ -139,8 +144,6 @@ export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boo
         default:
           break;
       }
-
-      gestureCallback.current?.(false);
     };
 
     const onPointerDown = (event: PointerEvent) => {
@@ -163,6 +166,8 @@ export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boo
         startY: event.clientY,
         moved: false,
         buttonAccepted: false,
+        offsetX: 0,
+        offsetZ: 0,
       };
 
       if (kind === 'lid') {
@@ -177,18 +182,27 @@ export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boo
         if (accepted) services.motion?.pressButton(kind);
         else services.motion?.rejectButton(kind);
         gesture.current = base;
-        gestureCallback.current?.(true);
         return;
       }
 
       if (kind === 'cup') {
+        // Keep the grab point under the pointer. The cup's centre may be many
+        // millimetres from where the visitor took hold (rim or handle), and
+        // centring it under the cursor would make the object jump.
+        toNdc(event);
+        if (!raycaster.ray.intersectPlane(CUP_PLANE, planePoint)) {
+          element.releasePointerCapture?.(event.pointerId);
+          return;
+        }
+        const cup = engine.getState().cup.position;
+        base.offsetX = cup.x - planePoint.x;
+        base.offsetZ = cup.z - planePoint.z;
         if (!dispatchCommand({ type: 'BEGIN_CUP_DRAG' })) {
           element.releasePointerCapture?.(event.pointerId);
           return;
         }
         gesture.current = base;
-        gestureCallback.current?.(true);
-        updateCup(event);
+        updateCup(event, base.offsetX, base.offsetZ);
         return;
       }
 
@@ -198,7 +212,6 @@ export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boo
         return;
       }
       gesture.current = base;
-      gestureCallback.current?.(true);
       updateJar(event);
     };
 
@@ -211,7 +224,7 @@ export function SceneInput({ onGestureChange }: { onGestureChange?: (active: boo
       }
 
       if (active.kind === 'cup') {
-        updateCup(event);
+        updateCup(event, active.offsetX, active.offsetZ);
         const now = performance.now();
         if (active.moved && now - lastScrape.current > 95) {
           lastScrape.current = now;

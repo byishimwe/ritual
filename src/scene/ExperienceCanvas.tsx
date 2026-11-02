@@ -1,5 +1,5 @@
 import { Canvas } from '@react-three/fiber';
-import { Suspense, useMemo, useState } from 'react';
+import { Suspense, useMemo } from 'react';
 import * as THREE from 'three';
 import { CAMERA } from '../config/asset';
 import { ExperienceRuntime } from '../runtime/ExperienceRuntime';
@@ -21,7 +21,6 @@ import { StudioStage } from './StudioStage';
 export function ExperienceCanvas() {
   const quality = useMemo(() => detectQuality(), []);
   const services = useServicesValue(quality.reducedMotion);
-  const [gestureActive, setGestureActive] = useState(false);
 
   return (
     <Canvas
@@ -44,8 +43,8 @@ export function ExperienceCanvas() {
       <ServicesProvider value={services}>
         <StudioStage />
         <StudioLighting quality={quality.tier} />
-        <CameraRig suspended={gestureActive} />
-        <SceneInput onGestureChange={setGestureActive} />
+        <CameraRig />
+        <SceneInput />
         <Suspense fallback={null}>
           <RitualScene />
         </Suspense>

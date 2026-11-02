@@ -11,14 +11,21 @@ import {
   canPressPour,
   canToggleHopper,
   clampCupPosition,
+  cupSupportY,
   makeRejection,
   resetEligibility,
   INACTIVITY_WINDOW_MS,
 } from './guards';
 import { createInitialState } from './initialState';
-import type { CoffeeVolumeState, ExperienceState, ResetReason } from './types';
+import type { CoffeeVolumeState, ExperienceState, ResetReason, SpillSource } from './types';
 
 const EPS = COFFEE.epsilon;
+/** A puddle is a bounded set of coalesced deposits, never one per frame. */
+const MAX_SPILL_DEPOSITS = 10;
+const SPILL_MERGE_DISTANCE = 0.018;
+const SPILL_SURFACE_LIFT = 0.0008;
+/** Overflow runs toward the front of the cup, where it can be seen. */
+const OVERFLOW_RUNOFF_Z = CUP.outerRadius * 0.62;
 
 function finishedBatch(): CoffeeVolumeState {
   return {
@@ -30,6 +37,7 @@ function finishedBatch(): CoffeeVolumeState {
     overflowVolume: 0,
     discardedVolume: 0,
     totalReleasedVolume: 0,
+    spills: [],
   };
 }
 
@@ -46,6 +54,7 @@ export class ExperienceEngine {
   private readonly listeners = new Set<ExperienceEventListener>();
   /** Increments only on discrete changes; renderers read continuous values. */
   private revision = 0;
+  private nextSpillId = 0;
 
   constructor(now = 0) {
     this.state = createInitialState(now);
@@ -352,9 +361,24 @@ export class ExperienceEngine {
         const potentialCup = amount * fraction;
         const space = Math.max(0, COFFEE.cupCapacity - s.coffee.cupVolume);
         const captured = Math.min(potentialCup, space);
+        const overflow = potentialCup - captured;
+        const missed = amount - potentialCup;
         s.coffee.cupVolume = Math.min(COFFEE.cupCapacity, s.coffee.cupVolume + captured);
-        s.coffee.overflowVolume += potentialCup - captured;
-        s.coffee.missedVolume += amount - potentialCup;
+        s.coffee.overflowVolume += overflow;
+        s.coffee.missedVolume += missed;
+        // Record where the coffee landed *now*. Later cup movement cannot
+        // relocate a deposit that has already reached the stage.
+        if (overflow > 0) {
+          this.recordSpill(
+            'OVERFLOW',
+            s.cup.position.x,
+            s.cup.position.z + OVERFLOW_RUNOFF_Z,
+            overflow,
+          );
+        }
+        if (missed > 0) {
+          this.recordSpill('MISS', ANCHORS.coffeeExit.x, ANCHORS.coffeeExit.z, missed);
+        }
       }
     }
 
@@ -363,6 +387,78 @@ export class ExperienceEngine {
     let inFlight = 0;
     for (const parcel of s.parcels) inFlight += parcel.amount;
     s.coffee.inFlightVolume = inFlight;
+  }
+
+  /**
+   * Adds landed coffee to a persistent surface deposit.
+   *
+   * Nearby deposits of the same kind are merged with a volume-weighted centre,
+   * and the list is capped, so dragging a full cup across the stream produces a
+   * few stable puddles instead of hundreds of meshes.
+   */
+  private recordSpill(source: SpillSource, x: number, z: number, volume: number): void {
+    if (!Number.isFinite(volume) || volume <= 0) return;
+    const deposits = this.state.coffee.spills;
+    let nearest: (typeof deposits)[number] | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+
+    for (const deposit of deposits) {
+      if (deposit.source !== source) continue;
+      const distance = Math.hypot(deposit.x - x, deposit.z - z);
+      if (distance < nearestDistance) {
+        nearest = deposit;
+        nearestDistance = distance;
+      }
+    }
+
+    if (nearest && nearestDistance <= SPILL_MERGE_DISTANCE) {
+      const total = nearest.volume + volume;
+      nearest.x = (nearest.x * nearest.volume + x * volume) / total;
+      nearest.z = (nearest.z * nearest.volume + z * volume) / total;
+      nearest.y = cupSupportY(nearest.x, nearest.z) + SPILL_SURFACE_LIFT;
+      nearest.volume = total;
+      return;
+    }
+
+    deposits.push({
+      id: (this.nextSpillId += 1),
+      source,
+      x,
+      y: cupSupportY(x, z) + SPILL_SURFACE_LIFT,
+      z,
+      volume,
+    });
+    this.coalesceSpills();
+  }
+
+  /** Merges the closest pair until the bounded deposit list fits. */
+  private coalesceSpills(): void {
+    const deposits = this.state.coffee.spills;
+    while (deposits.length > MAX_SPILL_DEPOSITS) {
+      let first = 0;
+      let second = 1;
+      let closest = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < deposits.length; i += 1) {
+        for (let j = i + 1; j < deposits.length; j += 1) {
+          const distance = Math.hypot(deposits[i].x - deposits[j].x, deposits[i].z - deposits[j].z);
+          if (distance < closest) {
+            closest = distance;
+            first = i;
+            second = j;
+          }
+        }
+      }
+      const a = deposits[first];
+      const b = deposits[second];
+      const total = a.volume + b.volume;
+      const keepA = a.volume >= b.volume;
+      a.x = (a.x * a.volume + b.x * b.volume) / total;
+      a.z = (a.z * a.volume + b.z * b.volume) / total;
+      a.y = cupSupportY(a.x, a.z) + SPILL_SURFACE_LIFT;
+      a.volume = total;
+      if (!keepA) a.source = b.source;
+      deposits.splice(second, 1);
+    }
   }
 
   /** A deliberate second press ends dispensing and finalises the batch. */
@@ -380,7 +476,8 @@ export class ExperienceEngine {
     const nextGeneration = s.session.generation + 1;
     const fresh = createInitialState(now);
 
-    // Atomic logical restoration — the visual transition may still animate.
+    // Resets must also clear in-flight parcels so no future arrival can
+    // create a deposit in the fresh session (RITUAL-05 §20.6, RITUAL-06 G08).
     this.state = {
       ...fresh,
       machine: 'RESETTING',

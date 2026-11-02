@@ -22,6 +22,7 @@ export function createInitialState(now = 0): ExperienceState {
       overflowVolume: 0,
       discardedVolume: 0,
       totalReleasedVolume: 0,
+      spills: [],
     },
     processElapsed: 0,
     parcels: [],

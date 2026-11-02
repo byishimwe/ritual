@@ -37,12 +37,42 @@ export interface RitualModel {
 export interface AssetReport {
   ok: boolean;
   missing: string[];
+  invalid: string[];
   notes: string[];
   machineHeight: number;
   cupDiameter: number;
 }
 
+/**
+ * A required part of the authored machine is unusable. The scene must not
+ * substitute an empty object and present controls that cannot work.
+ */
+export class AssetContractError extends Error {
+  readonly report: AssetReport;
+
+  constructor(report: AssetReport) {
+    const problems = [
+      ...report.missing.map((name) => `missing required node: ${name}`),
+      ...report.invalid.map((name) => `non-finite transform: ${name}`),
+      ...report.notes,
+    ];
+    super(`Asset contract violation — ${problems.join('; ')}`);
+    this.name = 'AssetContractError';
+    this.report = report;
+  }
+}
+
 const cache = new WeakMap<THREE.Object3D, RitualModel>();
+
+function hasFiniteTransform(object: THREE.Object3D): boolean {
+  const values = [
+    ...object.position.toArray(),
+    ...object.quaternion.toArray(),
+    ...object.scale.toArray(),
+    ...object.matrix.elements,
+  ];
+  return values.every((value) => Number.isFinite(value));
+}
 
 function byName(root: THREE.Object3D, name: string): THREE.Object3D | null {
   return root.getObjectByName(name) ?? null;
@@ -147,7 +177,21 @@ export function buildRitualModel(source: THREE.Object3D): RitualModel {
   ] as const;
 
   const missing = required.filter(([, node]) => !node).map(([name]) => name);
+  const invalid = required
+    .filter(([, node]) => node !== null && !hasFiniteTransform(node))
+    .map(([name]) => name);
   const notes: string[] = [];
+
+  if (missing.length > 0 || invalid.length > 0) {
+    throw new AssetContractError({
+      ok: false,
+      missing,
+      invalid,
+      notes,
+      machineHeight: 0,
+      cupDiameter: 0,
+    });
+  }
 
   // --- Machine wrapper: one scale + one offset adapts the authored units. ---
   const machineRoot = new THREE.Group();
@@ -215,6 +259,18 @@ export function buildRitualModel(source: THREE.Object3D): RitualModel {
     notes.push(`cup diameter ${cupDiameter.toFixed(3)} m is outside the expected 0.07–0.12 m`);
   }
 
+  const scaleInvalid = machineHeight < 0.3 || machineHeight > 0.5 || cupDiameter < 0.07 || cupDiameter > 0.12;
+  if (scaleInvalid) {
+    throw new AssetContractError({
+      ok: false,
+      missing: [],
+      invalid,
+      notes,
+      machineHeight,
+      cupDiameter,
+    });
+  }
+
   const model: RitualModel = {
     machineRoot,
     cupRoot,
@@ -232,8 +288,9 @@ export function buildRitualModel(source: THREE.Object3D): RitualModel {
     beanMaterial: pileResult.material,
     buttonTravelRaw: SPATIAL.buttonTravel / MODEL_SCALE,
     report: {
-      ok: missing.length === 0,
-      missing,
+      ok: true,
+      missing: [],
+      invalid: [],
       notes,
       machineHeight,
       cupDiameter,

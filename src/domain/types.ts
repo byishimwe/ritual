@@ -32,6 +32,24 @@ export interface Vec2 {
   z: number;
 }
 
+/**
+ * A spill's persistent location on the stage.
+ *
+ * Deposits are facts recorded when coffee actually lands, not a rendering
+ * position derived from the cup. Moving the cup therefore cannot move coffee
+ * that has already reached the countertop.
+ */
+export type SpillSource = 'MISS' | 'OVERFLOW';
+
+export interface SpillDeposit {
+  id: number;
+  source: SpillSource;
+  x: number;
+  y: number;
+  z: number;
+  volume: number;
+}
+
 /** Finite coffee accounting. `preparedBatch` is constant for a cycle. */
 export interface CoffeeVolumeState {
   preparedBatch: number;
@@ -42,6 +60,8 @@ export interface CoffeeVolumeState {
   overflowVolume: number;
   discardedVolume: number;
   totalReleasedVolume: number;
+  /** Bounded, coalesced surface deposits that survive until reset. */
+  spills: SpillDeposit[];
 }
 
 /** A parcel of coffee currently falling from the nozzle. */

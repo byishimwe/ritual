@@ -49,9 +49,13 @@ export function ExperienceRuntime() {
 
       const hiddenMs = tracker.onVisible(now);
       clock.reset();
-      audio.resume();
       if (shouldResetAfterHidden(hiddenMs)) {
+        // Long interruption: the session is discarded, so the context must not
+        // try to re-arm the previous session's loops before the reset clears them.
+        audio.stopAll();
         engine.command({ type: 'RESET', reason: 'hidden' }, now);
+      } else {
+        audio.resume(engine.getState().machine);
       }
     };
 

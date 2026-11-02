@@ -36,8 +36,8 @@ Recommended environment: current Chrome/Edge or Firefox on a desktop/laptop with
 | Open / close the hopper | Click the lid |
 | Add beans | Drag the glass bean jar over the open hopper and release |
 | Position the cup | Drag the cup across the drip tray |
-| Power | Click the left button |
-| Make | Click the centre button |
+| Power | Click the centre button |
+| Make | Click the left button |
 | Start / stop pouring | Click the right button |
 | Operator reset | Press `R` |
 
@@ -86,7 +86,7 @@ Key rules:
 
 ### Asset contract
 
-`public/assets/models/coffee_machine.glb` must expose the named nodes `body`, `HopperLid`, `Hopper`, `coffeeSpout`, `coffeeCup`, `btnPower`, `btnMake`, `btnPour` and `coffeeBeans`. The runtime adapter (`src/assets/ritualModel.ts`) validates them, recentres the cup on its own axis, preserves the lid hinge and consolidates the baked bean pile into one mesh. Missing required nodes are reported to the developer console and the scene renders around the gap; an unrecoverable load error reaches the fatal-error boundary.
+`public/assets/models/coffee_machine.glb` must expose the named nodes `body`, `HopperLid`, `Hopper`, `coffeeSpout`, `coffeeCup`, `btnPower`, `btnMake`, `btnPour` and `coffeeBeans`. The runtime adapter (`src/assets/ritualModel.ts`) validates them, recentres the cup on its own axis, preserves the lid hinge and consolidates the baked bean pile into one mesh. Missing required nodes, non-finite transforms or out-of-spec dimensions throw an `AssetContractError` and trigger the fatal-error card in the application shell rather than rendering placeholder controls.
 
 ### Quality tiers
 
@@ -99,8 +99,8 @@ Key rules:
 ```bash
 npm run typecheck   # tsc project build
 npm run lint        # oxlint
-npm test            # 66 deterministic domain tests
-npm run test:e2e    # Playwright browser journey (starts its own dev server)
+npm test            # 91 deterministic domain, asset, audio and spill tests
+npm run test:e2e    # 10 Playwright browser journey tests (starts its own dev server)
 ```
 
 The browser suite covers:
@@ -110,8 +110,13 @@ The browser suite covers:
 - full ritual: open, transfer, close, power, grind, brew, align cup, pour, stop, reset
 - misaligned cup: zero capture, measurable spill, conservation
 - unattended pour: full cup, overflow, batch exhaustion
+- orbit envelope constraints: azimuth [-160°, +160°], polar, and zoom limits
+- cinematic camera choreography surviving short button gestures
+- manual orbit immediate override of active cinematic moves
+- cup grab offset preservation (no center jump when grabbing rim/handle)
+- persistent world-space spill puddles that do not travel with cup movement
 
-The Playwright config uses the system Chrome (`channel: 'chrome'`) with SwiftShader enabled so WebGL runs headless. Software rendering advances simulated time more slowly than wall time; assertions wait on authoritative state/volumes rather than fixed sleep durations. Run it on a machine with Chrome installed.
+The Playwright config uses the system Chrome or bundled Chromium in CI (`PLAYWRIGHT_CHANNEL` or standard Chromium) with SwiftShader enabled so WebGL runs headless. Software rendering advances simulated time more slowly than wall time; assertions wait on authoritative state/volumes rather than fixed sleep durations.
 
 There is no automated substitute for the remaining artistic and exhibition acceptance: material quality, motion weight, sound balance, discoverability and performance on the actual exhibition hardware still require human review on that hardware.
 

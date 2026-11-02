@@ -151,6 +151,50 @@ describe('reset', () => {
     expect(engine.getState().coffee.missedVolume).toBe(0);
   });
 
+  it('silences any active audio session when a long hide forces a reset', () => {
+    const engine = new ExperienceEngine(NOW);
+    brewBatch(engine, NOW);
+    alignCup(engine, NOW);
+    engine.command({ type: 'PRESS_POUR' }, NOW);
+    advanceSimulation(engine, 1);
+    expect(engine.getState().coffee.inFlightVolume).toBeGreaterThan(0);
+    expect(engine.getState().coffee.spills).toHaveLength(0);
+
+    // A brief tab hide that did not land coffee must not leave a stale
+    // session loop trying to resume on restore (RITUAL-05 §21.4).
+    engine.command({ type: 'RESET', reason: 'hidden' }, NOW);
+    expect(engine.getState().parcels).toHaveLength(0);
+    expect(engine.getState().coffee.inFlightVolume).toBe(0);
+    expect(engine.getState().coffee.spills).toHaveLength(0);
+
+    advanceSimulation(engine, 1);
+    expect(engine.getState().coffee.cupVolume).toBe(0);
+    expect(engine.getState().coffee.missedVolume).toBe(0);
+    expect(engine.getState().coffee.spills).toHaveLength(0);
+  });
+
+  it('clears landed spills so they cannot survive into the fresh session', () => {
+    const engine = new ExperienceEngine(NOW);
+    brewBatch(engine, NOW);
+    alignCup(engine, NOW);
+    engine.command({ type: 'PRESS_POUR' }, NOW);
+    advanceSimulation(engine, 8.6);
+    expect(engine.getState().coffee.spills.length).toBeGreaterThan(0);
+
+    engine.command({ type: 'RESET', reason: 'hidden' }, NOW);
+    expect(engine.getState().coffee.spills).toHaveLength(0);
+    expect(engine.getState().coffee.cupVolume).toBe(0);
+    expect(engine.getState().coffee.missedVolume).toBe(0);
+    expect(engine.getState().coffee.overflowVolume).toBe(0);
+    expect(engine.getState().coffee.totalReleasedVolume).toBe(0);
+
+    advanceSimulation(engine, 1);
+    expect(engine.getState().coffee.spills).toHaveLength(0);
+    expect(engine.getState().coffee.cupVolume).toBe(0);
+    expect(engine.getState().coffee.missedVolume).toBe(0);
+    expect(engine.getState().coffee.overflowVolume).toBe(0);
+  });
+
   it('power during COMPLETE becomes a reset with the approved reason', () => {
     const engine = new ExperienceEngine(NOW);
     brewBatch(engine, NOW);

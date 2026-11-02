@@ -16,7 +16,7 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     ...devices['Desktop Chrome'],
-    channel: 'chrome',
+    channel: process.env.PLAYWRIGHT_CHANNEL || (process.env.CI ? undefined : 'chrome'),
     baseURL: 'http://localhost:5183',
     viewport: { width: 1440, height: 861 },
     launchOptions: {

@@ -81,7 +81,7 @@ export function createDirector(services: Services): Director {
     }
     const gen = generation();
     lidTween?.kill();
-    lidTween = gsap.to(lid.rotation, {
+    lidTween = track(gsap.to(lid.rotation, {
       x: open ? LID.openAngle : 0,
       duration: open ? MOTION.hopperOpen : MOTION.hopperClose,
       ease: 'power2.inOut',
@@ -90,17 +90,17 @@ export function createDirector(services: Services): Director {
         dispatchCommand({ type: 'HOPPER_MOTION_COMPLETE' });
         if (open) audio.steamHiss(0.4);
       }),
-    });
+    }));
   };
 
   const runBeanTransfer = () => {
     const jar = services.rig.jar;
     const gen = generation();
     if (!jar) {
-      gsap.delayedCall(MOTION.beanTransfer, guarded(gen, () => {
+      track(gsap.delayedCall(MOTION.beanTransfer, guarded(gen, () => {
         showPile();
         dispatchCommand({ type: 'COMPLETE_BEAN_TRANSFER' });
-      }));
+      })));
       return;
     }
 
@@ -233,33 +233,47 @@ export function createDirector(services: Services): Director {
     const button = services.rig.buttons;
     if (button) {
       for (const kind of ['power', 'make', 'pour'] as ButtonKind[]) {
-        gsap.to(button[kind].position, { z: 0, duration: 0.2, ease: 'power2.out', overwrite: true });
+        track(
+          gsap.to(button[kind].position, {
+            z: 0,
+            duration: 0.2,
+            ease: 'power2.out',
+            overwrite: true,
+          }),
+        );
       }
     }
 
     const lid = services.rig.lid;
     if (lid) {
-      lidTween = gsap.to(lid.rotation, {
+      lidTween = track(gsap.to(lid.rotation, {
         x: 0,
         duration: MOTION.reset * 0.5,
         ease: 'power2.inOut',
         overwrite: true,
-      });
+      }));
     }
 
     setIndicator(INDICATOR.off, MOTION.reset * 0.4);
 
     const jar = services.rig.jar;
     if (jar) {
-      gsap.to(jar.rotation, { x: 0, duration: MOTION.reset * 0.4, ease: 'power2.out', overwrite: true });
+      track(
+        gsap.to(jar.rotation, {
+          x: 0,
+          duration: MOTION.reset * 0.4,
+          ease: 'power2.out',
+          overwrite: true,
+        }),
+      );
     }
 
     // The logical reset is already atomic; this only bounds the visual one.
-    gsap.delayedCall(MOTION.reset, guarded(gen, () => {
+    track(gsap.delayedCall(MOTION.reset, guarded(gen, () => {
       dispatchCommand({ type: 'FINISH_RESET' });
       hidePile();
       setIndicator(INDICATOR.off, 0.2);
-    }));
+    })));
   };
 
   const unsubscribe = engine.subscribe(handleEvent);
@@ -280,34 +294,44 @@ export function createDirector(services: Services): Director {
       const button = services.rig.buttons?.[kind];
       audio.buttonDown(kind);
       if (!button) return;
-      gsap.to(button.position, {
-        z: -SPATIAL.buttonTravel / MODEL_SCALE,
-        duration: MOTION.buttonPressIn,
-        ease: 'power2.out',
-        overwrite: true,
-      });
+      track(
+        gsap.to(button.position, {
+          z: -SPATIAL.buttonTravel / MODEL_SCALE,
+          duration: MOTION.buttonPressIn,
+          ease: 'power2.out',
+          overwrite: true,
+        }),
+      );
     },
 
     releaseButton(kind) {
       const button = services.rig.buttons?.[kind];
       audio.buttonUp(kind);
       if (!button) return;
-      gsap.to(button.position, {
-        z: 0,
-        duration: MOTION.buttonPressOut,
-        ease: 'back.out(1.6)',
-        overwrite: true,
-      });
+      track(
+        gsap.to(button.position, {
+          z: 0,
+          duration: MOTION.buttonPressOut,
+          ease: 'back.out(1.6)',
+          overwrite: true,
+        }),
+      );
     },
 
     rejectButton(kind) {
       const button = services.rig.buttons?.[kind];
       audio.reject();
       if (!button) return;
-      gsap
-        .timeline()
-        .to(button.position, { z: -SPATIAL.buttonTravel / MODEL_SCALE, duration: 0.07, ease: 'power2.out' })
-        .to(button.position, { z: 0, duration: 0.16, ease: 'power2.out' });
+      track(
+        gsap
+          .timeline()
+          .to(button.position, {
+            z: -SPATIAL.buttonTravel / MODEL_SCALE,
+            duration: 0.07,
+            ease: 'power2.out',
+          })
+          .to(button.position, { z: 0, duration: 0.16, ease: 'power2.out' }),
+      );
     },
   };
 

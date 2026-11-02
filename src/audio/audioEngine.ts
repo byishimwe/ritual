@@ -18,23 +18,58 @@ interface Loop {
   stop: (fadeSeconds: number) => void;
 }
 
-class AudioEngine {
+interface OneShot {
+  source: AudioScheduledSourceNode;
+  /** Final envelope gain; queued sounds can be silenced before they start. */
+  tail: GainNode | null;
+}
+
+type AudioContextFactory = () => AudioContext | null;
+
+function createBrowserContext(): AudioContext | null {
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  return Ctor ? new Ctor() : null;
+}
+
+export class AudioEngine {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private loops = new Map<LoopName, Loop>();
+  private oneShots = new Map<AudioScheduledSourceNode, OneShot>();
   private suspended = false;
   private noiseCache: AudioBuffer | null = null;
+  private readonly createContext: AudioContextFactory;
+
+  constructor(createContext: AudioContextFactory = createBrowserContext) {
+    this.createContext = createContext;
+  }
 
   get isReady(): boolean {
     return this.ctx !== null && this.ctx.state === 'running' && !this.suspended;
   }
 
+  /** Diagnostic counts used by lifecycle tests. */
+  get activeLoopCount(): number {
+    return this.loops.size;
+  }
+
+  get activeOneShotCount(): number {
+    return this.oneShots.size;
+  }
+
+  /** Every one-shot's final node is a GainNode; loops bypass this getter. */
+  private get outputNode(): AudioNode {
+    return this.master as AudioNode;
+  }
+
   /** Must be called from a user gesture. Safe to call repeatedly. */
   unlock(): void {
     if (!this.ctx) {
-      const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!Ctor) return;
-      this.ctx = new Ctor();
+      const context = this.createContext();
+      if (!context) return;
+      this.ctx = context;
       const master = this.ctx.createGain();
       master.gain.value = 0.85;
       // A gentle limiter keeps stacked one-shots from clipping.
@@ -57,10 +92,28 @@ class AudioEngine {
     if (this.ctx && this.ctx.state === 'running') void this.ctx.suspend();
   }
 
-  resume(): void {
+  /**
+   * Resumes the context and, for a short interruption, restores the sustained
+   * loop that belongs to the machine's still-active stage. Completed cues are
+   * never replayed; a long interruption is reset by the runtime instead.
+   */
+  resume(machine?: string): void {
     if (!this.ctx) return;
     this.suspended = false;
     if (this.ctx.state === 'suspended') void this.ctx.resume();
+    if (machine) this.syncToMachine(machine);
+  }
+
+  private syncToMachine(machine: string): void {
+    if (!this.ctx || this.suspended || !this.master) return;
+    if (machine !== 'POURING') this.stopLoop('pour', 0.05);
+    if (machine !== 'GRINDING') this.stopLoop('grind', 0.05);
+    if (machine !== 'BREWING') this.stopLoop('pump', 0.05);
+
+    // startLoop is idempotent, so repeated visibility changes cannot stack.
+    if (machine === 'GRINDING') this.grindStart();
+    else if (machine === 'BREWING') this.pumpStart();
+    else if (machine === 'POURING') this.pourStart();
   }
 
   private get active(): AudioContext | null {
@@ -81,7 +134,12 @@ class AudioEngine {
   }
 
   private disposeAfter(source: AudioScheduledSourceNode, nodes: AudioNode[]): void {
+    const candidate = nodes[nodes.length - 1];
+    const tail =
+      candidate && 'gain' in candidate ? (candidate as GainNode) : null;
+    this.oneShots.set(source, { source, tail });
     source.onended = () => {
+      this.oneShots.delete(source);
       for (const node of nodes) {
         try {
           node.disconnect();
@@ -110,7 +168,7 @@ class AudioEngine {
     const noiseGain = ctx.createGain();
     noiseGain.gain.setValueAtTime(0.14, t);
     noiseGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.028);
-    noise.connect(noiseFilter).connect(noiseGain).connect(this.master);
+    noise.connect(noiseFilter).connect(noiseGain).connect(this.outputNode);
     noise.start(t, Math.random());
     noise.stop(t + 0.03);
     this.disposeAfter(noise, [noiseFilter, noiseGain]);
@@ -122,7 +180,7 @@ class AudioEngine {
     const toneGain = ctx.createGain();
     toneGain.gain.setValueAtTime(0.055, t);
     toneGain.gain.exponentialRampToValueAtTime(0.0008, t + 0.055);
-    tone.connect(toneGain).connect(this.master);
+    tone.connect(toneGain).connect(this.outputNode);
     tone.start(t);
     tone.stop(t + 0.06);
     this.disposeAfter(tone, [toneGain]);
@@ -138,7 +196,7 @@ class AudioEngine {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.025, t);
     gain.gain.exponentialRampToValueAtTime(0.0006, t + 0.06);
-    tone.connect(gain).connect(this.master);
+    tone.connect(gain).connect(this.outputNode);
     tone.start(t);
     tone.stop(t + 0.07);
     this.disposeAfter(tone, [gain]);
@@ -156,7 +214,7 @@ class AudioEngine {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.05, t);
     gain.gain.exponentialRampToValueAtTime(0.0006, t + 0.13);
-    tone.connect(gain).connect(this.master);
+    tone.connect(gain).connect(this.outputNode);
     tone.start(t);
     tone.stop(t + 0.14);
     this.disposeAfter(tone, [gain]);
@@ -178,7 +236,7 @@ class AudioEngine {
     humGain.gain.setValueAtTime(0.0001, t);
     humGain.gain.linearRampToValueAtTime(0.05, t + 0.09);
     humGain.gain.exponentialRampToValueAtTime(0.0005, t + 0.75);
-    hum.connect(humFilter).connect(humGain).connect(this.master);
+    hum.connect(humFilter).connect(humGain).connect(this.outputNode);
     hum.start(t);
     hum.stop(t + 0.8);
     this.disposeAfter(hum, [humFilter, humGain]);
@@ -202,7 +260,7 @@ class AudioEngine {
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.linearRampToValueAtTime(0.03, t + 0.08);
     gain.gain.exponentialRampToValueAtTime(0.0005, t + 0.5);
-    servo.connect(filter).connect(gain).connect(this.master);
+    servo.connect(filter).connect(gain).connect(this.outputNode);
     servo.start(t);
     servo.stop(t + 0.55);
     this.disposeAfter(servo, [filter, gain]);
@@ -218,7 +276,7 @@ class AudioEngine {
     airGain.gain.setValueAtTime(0.0001, t + 0.2);
     airGain.gain.linearRampToValueAtTime(0.018, t + 0.32);
     airGain.gain.exponentialRampToValueAtTime(0.0004, t + 0.68);
-    air.connect(airFilter).connect(airGain).connect(this.master);
+    air.connect(airFilter).connect(airGain).connect(this.outputNode);
     air.start(t + 0.2);
     air.stop(t + 0.7);
     this.disposeAfter(air, [airFilter, airGain]);
@@ -239,7 +297,7 @@ class AudioEngine {
     thunkGain.gain.setValueAtTime(0.0001, t + 0.44);
     thunkGain.gain.linearRampToValueAtTime(0.075, t + 0.455);
     thunkGain.gain.exponentialRampToValueAtTime(0.0006, t + 0.62);
-    thunk.connect(thunkGain).connect(this.master);
+    thunk.connect(thunkGain).connect(this.outputNode);
     thunk.start(t + 0.44);
     thunk.stop(t + 0.64);
     this.disposeAfter(thunk, [thunkGain]);
@@ -256,7 +314,7 @@ class AudioEngine {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.04, t);
     gain.gain.exponentialRampToValueAtTime(0.0006, t + 0.12);
-    tone.connect(gain).connect(this.master);
+    tone.connect(gain).connect(this.outputNode);
     tone.start(t);
     tone.stop(t + 0.13);
     this.disposeAfter(tone, [gain]);
@@ -281,7 +339,7 @@ class AudioEngine {
     bedGain.gain.linearRampToValueAtTime(0.02, start + 0.08);
     bedGain.gain.setValueAtTime(0.02, start + duration * 0.7);
     bedGain.gain.exponentialRampToValueAtTime(0.0005, start + duration);
-    bed.connect(bedFilter).connect(bedGain).connect(this.master);
+    bed.connect(bedFilter).connect(bedGain).connect(this.outputNode);
     bed.start(start, Math.random());
     bed.stop(start + duration + 0.05);
     this.disposeAfter(bed, [bedFilter, bedGain]);
@@ -297,7 +355,7 @@ class AudioEngine {
       gain.gain.setValueAtTime(0.0008, when);
       gain.gain.linearRampToValueAtTime(0.018 + Math.random() * 0.012, when + 0.004);
       gain.gain.exponentialRampToValueAtTime(0.0004, when + 0.06);
-      osc.connect(gain).connect(this.master);
+      osc.connect(gain).connect(this.outputNode);
       osc.start(when);
       osc.stop(when + 0.07);
       this.disposeAfter(osc, [gain]);
@@ -317,7 +375,7 @@ class AudioEngine {
       gain.gain.setValueAtTime(0.0006, when);
       gain.gain.linearRampToValueAtTime(0.012, when + 0.004);
       gain.gain.exponentialRampToValueAtTime(0.0003, when + 0.07);
-      osc.connect(gain).connect(this.master);
+      osc.connect(gain).connect(this.outputNode);
       osc.start(when);
       osc.stop(when + 0.08);
       this.disposeAfter(osc, [gain]);
@@ -340,7 +398,7 @@ class AudioEngine {
     const level = 0.012 + Math.min(0.02, intensity * 0.012);
     gain.gain.setValueAtTime(level, t);
     gain.gain.exponentialRampToValueAtTime(0.0004, t + 0.1);
-    source.connect(filter).connect(gain).connect(this.master);
+    source.connect(filter).connect(gain).connect(this.outputNode);
     source.start(t, Math.random());
     source.stop(t + 0.11);
     this.disposeAfter(source, [filter, gain]);
@@ -357,7 +415,7 @@ class AudioEngine {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.05, t);
     gain.gain.exponentialRampToValueAtTime(0.0005, t + 0.16);
-    osc.connect(gain).connect(this.master);
+    osc.connect(gain).connect(this.outputNode);
     osc.start(t);
     osc.stop(t + 0.17);
     this.disposeAfter(osc, [gain]);
@@ -375,7 +433,7 @@ class AudioEngine {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.04, t);
     gain.gain.exponentialRampToValueAtTime(0.0004, t + 0.09);
-    osc.connect(gain).connect(this.master);
+    osc.connect(gain).connect(this.outputNode);
     osc.start(t);
     osc.stop(t + 0.1);
     this.disposeAfter(osc, [gain]);
@@ -416,7 +474,7 @@ class AudioEngine {
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.linearRampToValueAtTime(0.012, t + 0.35);
     gain.gain.exponentialRampToValueAtTime(0.0003, t + duration);
-    source.connect(filter).connect(gain).connect(this.master);
+    source.connect(filter).connect(gain).connect(this.outputNode);
     source.start(t, Math.random());
     source.stop(t + duration + 0.05);
     this.disposeAfter(source, [filter, gain]);
@@ -437,7 +495,7 @@ class AudioEngine {
     gain.gain.setValueAtTime(0.0001, t);
     gain.gain.linearRampToValueAtTime(0.022, t + 0.12);
     gain.gain.exponentialRampToValueAtTime(0.0003, t + 0.8);
-    source.connect(filter).connect(gain).connect(this.master);
+    source.connect(filter).connect(gain).connect(this.outputNode);
     source.start(t, Math.random());
     source.stop(t + 0.85);
     this.disposeAfter(source, [filter, gain]);
@@ -453,7 +511,7 @@ class AudioEngine {
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, ctx.currentTime);
     gain.gain.linearRampToValueAtTime(1, ctx.currentTime + 0.18);
-    gain.connect(this.master);
+    gain.connect(this.outputNode);
 
     const stop = build(ctx, gain);
     this.loops.set(name, { gain, stop });
@@ -470,7 +528,7 @@ class AudioEngine {
     loop.gain.gain.setValueAtTime(Math.max(loop.gain.gain.value, 0.0001), now);
     loop.gain.gain.exponentialRampToValueAtTime(0.0001, now + fade);
     loop.stop(fade);
-    window.setTimeout(() => loop.gain.disconnect(), (fade + 0.1) * 1000);
+    globalThis.setTimeout(() => loop.gain.disconnect(), (fade + 0.1) * 1000);
   }
 
   grindStart(): void {
@@ -639,8 +697,33 @@ class AudioEngine {
     this.stopLoop('pour', 0.3);
   }
 
+  /**
+   * Ends the current session's sound: sustained loops fade, and every queued
+   * or playing one-shot is silenced at its own envelope before being stopped.
+   * The registry is then cleared so no old callback can revive it.
+   */
   stopAll(): void {
     for (const name of Array.from(this.loops.keys())) this.stopLoop(name, 0.12);
+
+    const ctx = this.ctx;
+    if (!ctx) {
+      this.oneShots.clear();
+      return;
+    }
+    const now = ctx.currentTime;
+    for (const { source, tail } of this.oneShots.values()) {
+      try {
+        if (tail) {
+          tail.gain.cancelScheduledValues(now);
+          tail.gain.setValueAtTime(Math.max(tail.gain.value, 0.0001), now);
+          tail.gain.exponentialRampToValueAtTime(0.0001, now + 0.03);
+        }
+        source.stop(now + 0.035);
+      } catch {
+        // A source that already ended or never started is harmless here.
+      }
+    }
+    this.oneShots.clear();
   }
 
   dispose(): void {

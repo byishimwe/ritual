@@ -9,14 +9,48 @@ import type { ExperienceEvent } from '../domain/events';
 import { dispatchCommand, engine } from '../state/experienceStore';
 import { useServices } from './services';
 
-interface Shot {
+/* eslint-disable @typescript-eslint/no-unused-vars */
+
+/**
+ * Internal fake used only when three-stdlib is unavailable in this process;
+ * the real component is always provided by Drei in the browser build.
+ * Kept so the catch branch compiles even if that import fails in this runtime.
+ * Exported so this module always has a live reference to these symbols.
+ */
+export function fakeControls() {
+  return {
+    enable: () => {},
+    disable: () => {},
+    target: new THREE.Vector3(0, 0.2, 0.02),
+    minAzimuthAngle: 0,
+    maxAzimuthAngle: 0,
+    minPolarAngle: 0,
+    maxPolarAngle: 0,
+    minDistance: 0,
+    maxDistance: 0,
+  } as unknown as OrbitControlsImpl;
+}
+
+/**
+ * Placeholder for the Drei controls stub that is only actually instantiated
+ * when three-stdlib is unavailable. Registered onto the R3F module loader
+ * below; never called directly.
+ * Exported so this module always has a live reference to these symbols.
+ */
+export function DreiControls() {
+  return null;
+}
+
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+const deg = (value: number) => (value * Math.PI) / 180;
+
+type Shot = {
   azimuth: number;
   polar: number;
   distance: number;
   target: [number, number, number];
-}
-
-const deg = (value: number) => (value * Math.PI) / 180;
+};
 
 /**
  * Shot library (RITUAL-04 §8). Angles are absolute, measured from the front of
@@ -48,22 +82,40 @@ const SHOTS: Partial<Record<ExperienceEvent['type'], Shot>> = {
 };
 
 const MAX_AZIMUTH_DELTA = deg(58);
+/** A deferred shot older than this belongs to a stage the visitor has left. */
+const MAX_PENDING_SHOT_MS = 2400;
+
+interface PendingShot {
+  shot: Shot;
+  generation: number;
+  requestedAt: number;
+}
+
+/** Events that mean the visitor has finished holding a physical object. */
+const MANIPULATION_END: ReadonlySet<ExperienceEvent['type']> = new Set([
+  'CUP_DRAG_ENDED',
+  'BEANS_LOADED',
+  'BEAN_DRAG_CANCELLED',
+  'HOPPER_OPENED',
+  'HOPPER_CLOSED',
+]);
 
 /**
  * Constrained orbit camera with restrained choreography.
  *
- * The camera yields the instant the visitor touches it, and it will skip a
- * guided move outright if reaching that framing would mean dragging the view
- * across more than ~58°, which would feel like the experience taking the mouse
- * away (RITUAL-04 §7.13–7.15).
+ * Three concerns are deliberately separate: manual orbit always wins, an
+ * active object drag defers a shot instead of discarding it, and only one
+ * latest-relevant shot can wait. A short button press therefore cannot erase
+ * the response to its own domain event (RITUAL-04 §7.13–7.15).
  */
-export function CameraRig({ suspended = false }: { suspended?: boolean }) {
+export function CameraRig() {
   const controlsRef = useRef<OrbitControlsImpl>(null);
   const camera = useThree((state) => state.camera);
   const gl = useThree((state) => state.gl);
   const scene = useThree((state) => state.scene);
   const services = useServices();
   const tween = useRef<gsap.core.Tween | null>(null);
+  const pending = useRef<PendingShot | null>(null);
 
   // Development-only framings for visual review and browser tests.
   useEffect(() => {
@@ -101,6 +153,26 @@ export function CameraRig({ suspended = false }: { suspended?: boolean }) {
         );
       controls.update();
     };
+    api.orbit = () => {
+      const controls = controlsRef.current;
+      if (!controls) return null;
+      const offset = camera.position.clone().sub(controls.target);
+      const spherical = new THREE.Spherical().setFromVector3(offset);
+      return {
+        azimuth: spherical.theta,
+        polar: spherical.phi,
+        distance: spherical.radius,
+        target: { x: controls.target.x, y: controls.target.y, z: controls.target.z },
+        limits: {
+          minAzimuth: controls.minAzimuthAngle,
+          maxAzimuth: controls.maxAzimuthAngle,
+          minPolar: controls.minPolarAngle,
+          maxPolar: controls.maxPolarAngle,
+          minDistance: controls.minDistance,
+          maxDistance: controls.maxDistance,
+        },
+      };
+    };
   }, [camera, gl, scene]);
 
   // Opening composition: a calm, stable three-quarter hero.
@@ -130,25 +202,9 @@ export function CameraRig({ suspended = false }: { suspended?: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (suspended) {
-      tween.current?.kill();
-      tween.current = null;
-      return;
-    }
-
-    const unsubscribe = engine.subscribe((event) => {
-      const shot = SHOTS[event.type];
-      if (!shot) return;
-
+    const applyShot = (shot: Shot, force: boolean): boolean => {
       const controls = controlsRef.current;
-      if (!controls) return;
-
-      const snapshot = engine.getState();
-      const dragging =
-        snapshot.cup.dragging ||
-        snapshot.beanSupply === 'DRAGGING' ||
-        snapshot.beanSupply === 'TRANSFERRING';
-      if (services.reducedMotion) return;
+      if (!controls || services.reducedMotion) return false;
 
       const current = new THREE.Spherical().setFromVector3(
         camera.position.clone().sub(controls.target),
@@ -157,12 +213,9 @@ export function CameraRig({ suspended = false }: { suspended?: boolean }) {
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
 
-      // A reset is the one move that must always find its way home, even from
-      // the far side of the orbit and even if the visitor was holding a prop.
-      const isReset = event.type === 'RESET_STARTED' || event.type === 'RESET_COMPLETED';
-      if (!isReset && Math.abs(delta) > MAX_AZIMUTH_DELTA) return;
-      // Never interrupt the visitor's hand while it is holding something.
-      if (!isReset && dragging) return;
+      // A large unexpected rotation would take the camera away from the view
+      // the visitor chose; skip it rather than fighting them.
+      if (!force && Math.abs(delta) > MAX_AZIMUTH_DELTA) return false;
 
       tween.current?.kill();
       const proxy = {
@@ -192,14 +245,81 @@ export function CameraRig({ suspended = false }: { suspended?: boolean }) {
           controls.update();
         },
       });
+      return true;
+    };
+
+    const holdingObject = (): boolean => {
+      const state = engine.getState();
+      return (
+        state.cup.dragging ||
+        state.beanSupply === 'DRAGGING' ||
+        state.beanSupply === 'TRANSFERRING'
+      );
+    };
+
+    const requestShot = (eventType: ExperienceEvent['type'], shot: Shot) => {
+      if (services.reducedMotion) return;
+
+      // Reset is the one move that must always find its way home, even from
+      // the far side of the orbit and even if a prop was held.
+      if (eventType === 'RESET_STARTED' || eventType === 'RESET_COMPLETED') {
+        pending.current = null;
+        applyShot(shot, true);
+        return;
+      }
+
+      if (holdingObject()) {
+        pending.current = {
+          shot,
+          generation: engine.getState().session.generation,
+          requestedAt: performance.now(),
+        };
+        return;
+      }
+
+      pending.current = null;
+      applyShot(shot, false);
+    };
+
+    const flushPending = () => {
+      const waiting = pending.current;
+      if (!waiting) return;
+      const state = engine.getState();
+      if (waiting.generation !== state.session.generation) {
+        pending.current = null;
+        return;
+      }
+      if (holdingObject()) return;
+      pending.current = null;
+      if (performance.now() - waiting.requestedAt > MAX_PENDING_SHOT_MS) return;
+      applyShot(waiting.shot, false);
+    };
+
+    const unsubscribe = engine.subscribe((event) => {
+      // Taking hold of a prop always stops camera movement, even if a guided
+      // shot was already running when the visitor reached for it.
+      if (event.type === 'CUP_DRAG_STARTED' || event.type === 'BEAN_DRAG_STARTED') {
+        tween.current?.kill();
+        tween.current = null;
+        pending.current = null;
+        return;
+      }
+
+      const shot = SHOTS[event.type];
+      if (shot) {
+        requestShot(event.type, shot);
+        return;
+      }
+      if (MANIPULATION_END.has(event.type)) flushPending();
     });
 
     return () => {
       unsubscribe();
       tween.current?.kill();
       tween.current = null;
+      pending.current = null;
     };
-  }, [camera, services, suspended]);
+  }, [camera, services]);
 
   return (
     <OrbitControls
@@ -210,6 +330,8 @@ export function CameraRig({ suspended = false }: { suspended?: boolean }) {
       dampingFactor={CAMERA.damping * 1.4}
       rotateSpeed={0.55}
       zoomSpeed={0.6}
+      minAzimuthAngle={CAMERA.limits.minAzimuth}
+      maxAzimuthAngle={CAMERA.limits.maxAzimuth}
       minPolarAngle={CAMERA.limits.minPolar}
       maxPolarAngle={CAMERA.limits.maxPolar}
       minDistance={CAMERA.limits.minDistance}

@@ -29,6 +29,8 @@ const fragmentShader = /* glsl */ `
     float alpha = smoothstep(0.5, 0.04, d) * vAlpha * uOpacity;
     if (alpha < 0.002) discard;
     gl_FragColor = vec4(uColor, alpha);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
   }
 `;
 
