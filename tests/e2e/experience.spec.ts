@@ -113,12 +113,14 @@ async function setCamera(
 async function dragEmpty(page: Page, dx: number, dy: number): Promise<void> {
   const canvas = await page.locator('canvas').boundingBox();
   if (!canvas) throw new Error('canvas missing');
-  const startX = canvas.x + canvas.width * 0.84;
-  const startY = canvas.y + canvas.height * 0.8;
+  const startX = canvas.x + (dx < 0 ? canvas.width * 0.8 : canvas.width * 0.2);
+  const startY = canvas.y + (dy < 0 ? canvas.height * 0.75 : canvas.height * 0.25);
+  const spanX = Math.sign(dx) * Math.min(Math.abs(dx), canvas.width * 0.55);
+  const spanY = dy !== 0 ? Math.sign(dy) * Math.min(Math.abs(dy), canvas.height * 0.45) : 0;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   for (let i = 1; i <= 16; i += 1) {
-    await page.mouse.move(startX + (dx * i) / 16, startY + (dy * i) / 16);
+    await page.mouse.move(startX + (spanX * i) / 16, startY + (spanY * i) / 16);
     await page.waitForTimeout(8);
   }
   await page.mouse.up();
@@ -234,7 +236,7 @@ async function prepare(page: Page): Promise<void> {
       .__ritual.engine.getState();
     return s.hopper === 'OPEN' && s.hopperMotion === 'IDLE';
   }, null, { timeout: 30000 });
-  await page.waitForTimeout(900);
+  await page.waitForTimeout(1400);
 
   await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 30);
   await page.waitForFunction(

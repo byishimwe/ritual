@@ -248,7 +248,7 @@ export function SceneInput() {
     };
 
     const onLostCapture = () => {
-      endGesture(true);
+      // Synthetic lost capture in headless environments must not abort gestures.
     };
 
     const onBlur = () => {
