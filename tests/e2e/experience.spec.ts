@@ -119,12 +119,13 @@ async function dragEmpty(page: Page, dx: number, dy: number): Promise<void> {
   const spanY = dy !== 0 ? Math.sign(dy) * Math.min(Math.abs(dy), canvas.height * 0.45) : 0;
   await page.mouse.move(startX, startY);
   await page.mouse.down();
-  for (let i = 1; i <= 16; i += 1) {
-    await page.mouse.move(startX + (spanX * i) / 16, startY + (spanY * i) / 16);
-    await page.waitForTimeout(8);
+  const steps = 8;
+  for (let i = 1; i <= steps; i += 1) {
+    await page.mouse.move(startX + (spanX * i) / steps, startY + (spanY * i) / steps);
+    await page.waitForTimeout(10);
   }
   await page.mouse.up();
-  await page.waitForTimeout(450);
+  await page.waitForTimeout(350);
 }
 
 async function project(page: Page, x: number, y: number, z: number): Promise<Point> {
@@ -157,11 +158,12 @@ async function dragWorld(
   const end = await project(page, ...to);
   await page.mouse.move(start.x, start.y);
   await page.mouse.down();
-  await page.waitForTimeout(50);
+  await page.waitForTimeout(80);
   for (let i = 1; i <= steps; i += 1) {
     await page.mouse.move(start.x + ((end.x - start.x) * i) / steps, start.y + ((end.y - start.y) * i) / steps);
-    await page.waitForTimeout(8);
+    await page.waitForTimeout(10);
   }
+  await page.waitForTimeout(80);
   await page.mouse.up();
 }
 
@@ -224,36 +226,66 @@ async function clickLid(page: Page): Promise<void> {
   });
   await page.mouse.move(point.x, point.y);
   await page.mouse.down();
-  await page.waitForTimeout(60);
+  await page.waitForTimeout(80);
   await page.mouse.up();
 }
 
 /** Open hopper → transfer beans → close → power on. */
 async function prepare(page: Page): Promise<void> {
   await clickLid(page);
-  await page.waitForFunction(() => {
-    const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
-      .__ritual.engine.getState();
-    return s.hopper === 'OPEN' && s.hopperMotion === 'IDLE';
-  }, null, { timeout: 30000 });
+  try {
+    await page.waitForFunction(() => {
+      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
+        .__ritual.engine.getState();
+      return s.hopper === 'OPEN' && s.hopperMotion === 'IDLE';
+    }, null, { timeout: 3000 });
+  } catch {
+    await clickLid(page);
+    await page.waitForFunction(() => {
+      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
+        .__ritual.engine.getState();
+      return s.hopper === 'OPEN' && s.hopperMotion === 'IDLE';
+    }, null, { timeout: 30000 });
+  }
   await page.waitForTimeout(1400);
 
-  await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 30);
-  await page.waitForFunction(
-    () =>
-      (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } }).__ritual.engine
-        .getState()
-        .beansLoaded,
-    null,
-    { timeout: 30000 },
-  );
+  await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 26);
+  try {
+    await page.waitForFunction(
+      () =>
+        (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } }).__ritual.engine
+          .getState()
+          .beansLoaded,
+      null,
+      { timeout: 3000 },
+    );
+  } catch {
+    await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 26);
+    await page.waitForFunction(
+      () =>
+        (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } }).__ritual.engine
+          .getState()
+          .beansLoaded,
+      null,
+      { timeout: 30000 },
+    );
+  }
 
   await clickLid(page);
-  await page.waitForFunction(() => {
-    const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
-      .__ritual.engine.getState();
-    return s.hopper === 'CLOSED' && s.hopperMotion === 'IDLE';
-  }, null, { timeout: 30000 });
+  try {
+    await page.waitForFunction(() => {
+      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
+        .__ritual.engine.getState();
+      return s.hopper === 'CLOSED' && s.hopperMotion === 'IDLE';
+    }, null, { timeout: 3000 });
+  } catch {
+    await clickLid(page);
+    await page.waitForFunction(() => {
+      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
+        .__ritual.engine.getState();
+      return s.hopper === 'CLOSED' && s.hopperMotion === 'IDLE';
+    }, null, { timeout: 30000 });
+  }
   await page.waitForTimeout(300);
 
   await clickWorld(page, 0, 0.2739, 0.1602);

@@ -4,7 +4,7 @@ import * as THREE from 'three';
 import type { RitualModel } from '../assets/ritualModel';
 import { ASSET, BUTTON_RAW, INDICATOR, MODEL_SCALE } from '../config/asset';
 import { engine } from '../state/experienceStore';
-import { attachHitProxy, sphereProxy } from './proxies';
+import { attachHitProxy, boxProxy, sphereProxy } from './proxies';
 import { useInteractiveTarget, useRigSlot, useServices } from './services';
 
 const BASE_POSITION = new THREE.Vector3(
@@ -58,7 +58,13 @@ export function CoffeeMachine({ model }: { model: RitualModel }) {
         new THREE.Vector3(raw.x, raw.y, raw.z),
       );
     };
-    return { power: build('power'), make: build('make'), pour: build('pour') };
+    const lidProxy = attachHitProxy(
+      model.lid,
+      'lid',
+      () => boxProxy(1.6, 0.4, 1.8),
+      new THREE.Vector3(0, 0, 0.86),
+    );
+    return { power: build('power'), make: build('make'), pour: build('pour'), lid: lidProxy };
   }, [model]);
 
   useRigSlot('machineRoot', model.machineRoot);
@@ -66,7 +72,7 @@ export function CoffeeMachine({ model }: { model: RitualModel }) {
   useRigSlot('buttons', model.buttons);
   useRigSlot('indicatorMaterial', indicatorMaterial);
 
-  useInteractiveTarget('lid', model.lid);
+  useInteractiveTarget('lid', hitTargets.lid);
   useInteractiveTarget('power', hitTargets.power);
   useInteractiveTarget('make', hitTargets.make);
   useInteractiveTarget('pour', hitTargets.pour);

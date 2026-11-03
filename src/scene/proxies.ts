@@ -49,6 +49,12 @@ export function cylinderProxy(radius: number, height: number, segments = 16): TH
   return geometry;
 }
 
+export function boxProxy(width: number, height: number, depth: number): THREE.BufferGeometry {
+  const geometry = new THREE.BoxGeometry(width, height, depth);
+  geometry.userData.ritualDisposable = true;
+  return geometry;
+}
+
 /**
  * A soft dark ellipse used as an always-correct contact shadow beneath props
  * that move (the cup and the bean container). Cheaper and more reliable than
