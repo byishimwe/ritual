@@ -11,17 +11,24 @@ import type { ExperienceEngine } from './experienceEngine';
 export class SimulationClock {
   private accumulator = 0;
   private droppedSeconds = 0;
+  private maxFrameDelta: number;
+  private maxSubsteps: number;
+
+  constructor(options?: { maxFrameDelta?: number; maxSubsteps?: number }) {
+    this.maxFrameDelta = options?.maxFrameDelta ?? SIMULATION.maxFrameDelta;
+    this.maxSubsteps = options?.maxSubsteps ?? SIMULATION.maxSubsteps;
+  }
 
   /** Feeds a real frame delta (seconds) into the engine. Returns steps run. */
   advance(engine: ExperienceEngine, frameDeltaSeconds: number): number {
     const delta = Number.isFinite(frameDeltaSeconds) ? frameDeltaSeconds : 0;
     if (delta <= 0) return 0;
 
-    const clamped = Math.min(delta, SIMULATION.maxFrameDelta);
+    const clamped = Math.min(delta, this.maxFrameDelta);
     this.accumulator += clamped;
 
     let steps = 0;
-    while (this.accumulator >= SIMULATION.step && steps < SIMULATION.maxSubsteps) {
+    while (this.accumulator >= SIMULATION.step && steps < this.maxSubsteps) {
       engine.step(SIMULATION.step);
       this.accumulator -= SIMULATION.step;
       steps += 1;
@@ -29,7 +36,7 @@ export class SimulationClock {
 
     // Never bank unprocessed time: that is what turns a stall into a visible
     // catch-up jump later on.
-    if (steps >= SIMULATION.maxSubsteps) {
+    if (steps >= this.maxSubsteps) {
       this.droppedSeconds += this.accumulator;
       this.accumulator = 0;
     }

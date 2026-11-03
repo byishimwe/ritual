@@ -17,7 +17,7 @@ export default defineConfig({
     ...devices['Desktop Chrome'],
     channel: process.env.PLAYWRIGHT_CHANNEL || (process.env.CI ? undefined : 'chrome'),
     baseURL: 'http://localhost:5183',
-    viewport: { width: 1440, height: 861 },
+    viewport: { width: 1024, height: 612 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     launchOptions: {

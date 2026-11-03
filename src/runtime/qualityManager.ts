@@ -22,7 +22,12 @@ function resolveTier(): QualityTier {
 
   if (typeof navigator !== 'undefined') {
     const ua = navigator.userAgent || '';
-    if (ua.includes('HeadlessChrome') || ua.includes('Headless') || /SwiftShader/i.test(ua)) {
+    if (
+      ua.includes('HeadlessChrome') ||
+      ua.includes('Headless') ||
+      /SwiftShader/i.test(ua) ||
+      Boolean(navigator.webdriver)
+    ) {
       return 'low';
     }
   }
@@ -39,7 +44,7 @@ export function detectQuality(): QualityProfile {
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const dpr: [number, number] =
-    tier === 'high' ? [1, 1.75] : tier === 'medium' ? [1, 1.4] : [0.85, 1];
+    tier === 'high' ? [1, 1.75] : tier === 'medium' ? [1, 1.4] : [0.75, 1];
 
   return {
     tier,

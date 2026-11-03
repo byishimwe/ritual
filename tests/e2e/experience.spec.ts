@@ -56,13 +56,13 @@ interface OrbitState {
   };
 }
 
-async function boot(page: Page): Promise<void> {
-  await page.goto('/');
+async function boot(page: Page, query = '?quality=low&timeScale=2'): Promise<void> {
+  await page.goto(`/${query}`);
   await page.waitForFunction(
     () => Boolean((window as never as { __ritual?: { engine?: unknown; project?: unknown } }).__ritual?.project),
   );
   await page.waitForFunction(() => !document.querySelector('.ritual-loader'), null, { timeout: 30000 });
-  await page.waitForTimeout(600);
+  await page.waitForTimeout(400);
 }
 
 async function snapshot(page: Page): Promise<Snapshot> {

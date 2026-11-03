@@ -1,7 +1,7 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
 import { audio } from '../audio/audioEngine';
-import { SimulationClock } from '../domain/simulationClock';
+import { advanceSimulation, SimulationClock } from '../domain/simulationClock';
 import { createDirector } from '../motion/experienceDirector';
 import { advanceFrame } from './frameLoop';
 import { engine, publishEngineState } from '../state/experienceStore';
@@ -18,7 +18,27 @@ import { useServices } from '../scene/services';
 export function ExperienceRuntime() {
   const services = useServices();
   const gl = useThree((state) => state.gl);
-  const clock = useMemo(() => new SimulationClock(), []);
+
+  const isAutomated = typeof navigator !== 'undefined' && Boolean(navigator.webdriver);
+  const timeScale = useMemo(() => {
+    if (typeof window === 'undefined') return 1;
+    const param = new URLSearchParams(window.location.search).get('timeScale');
+    if (param) {
+      const val = parseFloat(param);
+      if (Number.isFinite(val) && val > 0 && val <= 5) return val;
+    }
+    return 1;
+  }, []);
+
+  const clock = useMemo(
+    () =>
+      new SimulationClock(
+        isAutomated || timeScale > 1
+          ? { maxFrameDelta: 1.0, maxSubsteps: 120 }
+          : undefined,
+      ),
+    [isAutomated, timeScale],
+  );
   const tracker = useMemo(() => new VisibilityTracker(), []);
   const contextLost = useRef(false);
 
@@ -33,7 +53,14 @@ export function ExperienceRuntime() {
   useEffect(() => {
     if (!import.meta.env.DEV) return;
     const host = window as unknown as { __ritual?: Record<string, unknown> };
-    host.__ritual = { ...(host.__ritual ?? {}), engine };
+    host.__ritual = {
+      ...(host.__ritual ?? {}),
+      engine,
+      advance: (seconds: number) => {
+        advanceSimulation(engine, seconds);
+        publishEngineState();
+      },
+    };
   }, []);
 
   // --- Tab visibility --------------------------------------------------------
@@ -100,7 +127,7 @@ export function ExperienceRuntime() {
 
   useFrame((_state, delta) => {
     advanceFrame(engine, clock, {
-      deltaSeconds: delta,
+      deltaSeconds: delta * timeScale,
       nowMs: Date.now(),
       suspended: document.hidden || contextLost.current,
     });
