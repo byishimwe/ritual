@@ -174,6 +174,34 @@ async function waitForMachine(page: Page, machine: string, timeout = 30000): Pro
   );
 }
 
+/**
+ * Deterministically steps the simulation clock forward until the machine
+ * enters the target state (or timeout). Prevents long wall-clock waits during
+ * fixed mechanical stages (grinding, brewing, pouring) without altering physics.
+ */
+async function fastForwardToMachine(page: Page, target: string, timeoutSec = 20): Promise<void> {
+  await page.evaluate(
+    ({ expected, maxSec }) => {
+      const api = (window as never as {
+        __ritual: {
+          engine: { getState: () => { machine: string } };
+          advance?: (s: number) => void;
+        };
+      }).__ritual;
+      if (!api) return;
+      let elapsed = 0;
+      while (api.engine.getState().machine !== expected && elapsed < maxSec) {
+        if (api.advance) {
+          api.advance(0.05);
+        }
+        elapsed += 0.05;
+      }
+    },
+    { expected: target, maxSec: timeoutSec },
+  );
+  await waitForMachine(page, target, 10000);
+}
+
 /** Clicks the lid where it actually is, open or closed. */
 async function clickLid(page: Page): Promise<void> {
   const point = await page.evaluate(() => {
@@ -284,7 +312,7 @@ test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) =>
   await page.waitForTimeout(900);
   await page.screenshot({ path: 'screenshots/13-brewing.png' });
 
-  await waitForMachine(page, 'READY_TO_POUR');
+  await fastForwardToMachine(page, 'READY_TO_POUR');
   await page.screenshot({ path: 'screenshots/14-ready.png' });
 
   await alignCup(page);
@@ -342,7 +370,7 @@ test('misaligned cup misses the coffee entirely', async ({ page }) => {
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'GRINDING');
-  await waitForMachine(page, 'READY_TO_POUR', 30000);
+  await fastForwardToMachine(page, 'READY_TO_POUR');
 
   // Leave the cup where it started, clearly off the receiving position.
   await clickWorld(page, 0.036, 0.2739, 0.1602);
@@ -369,7 +397,7 @@ test('unattended pouring fills the cup, then overflows and exhausts the batch', 
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'GRINDING');
-  await waitForMachine(page, 'READY_TO_POUR', 30000);
+  await fastForwardToMachine(page, 'READY_TO_POUR');
   await alignCup(page);
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
@@ -383,7 +411,7 @@ test('unattended pouring fills the cup, then overflows and exhausts the batch', 
   );
   await page.screenshot({ path: 'screenshots/18-overflow.png' });
 
-  await waitForMachine(page, 'COMPLETE');
+  await fastForwardToMachine(page, 'COMPLETE', 25);
   const state = await snapshot(page);
   expect(state.coffee.cupVolume).toBeCloseTo(1, 3);
   expect(state.coffee.overflowVolume).toBeGreaterThan(0.15);
@@ -529,7 +557,7 @@ test('overflow stays on the stage when the cup is moved, and reset clears it', a
   await prepare(page);
   await clickWorld(page, -0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'GRINDING');
-  await waitForMachine(page, 'READY_TO_POUR', 30000);
+  await fastForwardToMachine(page, 'READY_TO_POUR');
   await alignCup(page);
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
