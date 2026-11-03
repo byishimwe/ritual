@@ -56,7 +56,7 @@ interface OrbitState {
   };
 }
 
-async function boot(page: Page, query = '?quality=low&timeScale=2'): Promise<void> {
+async function boot(page: Page, query = '?quality=low&timeScale=2&test=true'): Promise<void> {
   await page.goto(`/${query}`);
   await page.waitForFunction(
     () => Boolean((window as never as { __ritual?: { engine?: unknown; project?: unknown } }).__ritual?.project),

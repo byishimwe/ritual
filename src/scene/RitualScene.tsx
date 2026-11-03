@@ -48,7 +48,7 @@ export function RitualScene() {
       console.warn('[Ritual] asset calibration notes', model.report.notes);
     }
 
-    if (import.meta.env.DEV) {
+    if (import.meta.env.DEV || window.location.search.includes('test')) {
       const host = window as unknown as { __ritual?: Record<string, unknown> };
       const api = (host.__ritual = host.__ritual ?? {});
       api.model = model;

@@ -48,10 +48,11 @@ export function ExperienceRuntime() {
     return () => director.dispose();
   }, [services]);
 
-  // Development-only inspection handle: used by the browser test harness to
-  // read authoritative state. Never attached in a production build.
+  // Development and test inspection handle: used by the browser test harness
+  // to read authoritative state and advance simulation. Never attached in an
+  // exhibition visitor session.
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!import.meta.env.DEV && !window.location.search.includes('test')) return;
     const host = window as unknown as { __ritual?: Record<string, unknown> };
     host.__ritual = {
       ...(host.__ritual ?? {}),

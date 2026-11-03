@@ -83,9 +83,9 @@ export function CameraRig() {
   const tween = useRef<gsap.core.Tween | null>(null);
   const pending = useRef<PendingShot | null>(null);
 
-  // Development-only framings for visual review and browser tests.
+  // Framings for visual review and browser tests.
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!import.meta.env.DEV && !window.location.search.includes('test')) return;
     const host = window as unknown as { __ritual?: Record<string, unknown> };
     const api = (host.__ritual = host.__ritual ?? {});
     api.THREE = THREE;

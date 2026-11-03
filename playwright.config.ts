@@ -12,11 +12,11 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
-  reporter: [['list']],
+  reporter: process.env.CI ? [['list'], ['github']] : [['list']],
   use: {
     ...devices['Desktop Chrome'],
     channel: process.env.PLAYWRIGHT_CHANNEL || (process.env.CI ? undefined : 'chrome'),
-    baseURL: 'http://localhost:5183',
+    baseURL: 'http://127.0.0.1:5183',
     viewport: { width: 1024, height: 612 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
@@ -35,8 +35,10 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: 'npm run dev -- --host 127.0.0.1 --port 5183 --strictPort',
-    url: 'http://localhost:5183',
+    command: process.env.CI
+      ? 'npm run preview -- --host 127.0.0.1 --port 5183 --strictPort'
+      : 'npm run dev -- --host 127.0.0.1 --port 5183 --strictPort',
+    url: 'http://127.0.0.1:5183',
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
