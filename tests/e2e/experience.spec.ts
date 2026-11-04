@@ -265,7 +265,10 @@ async function clickLid(page: Page): Promise<void> {
       camera: import('three').Camera;
     } }).__ritual;
     const lid = api.services.targets.get('lid')!;
-    lid.updateWorldMatrix(true, true);
+    // A returning jar can have a current local pose but a matrix from the
+    // previous rendered frame. Refresh every potential occluder, just as the
+    // production picker does, before deciding which target owns this ray.
+    for (const target of api.services.targets.values()) target.updateWorldMatrix(true, true);
     api.camera.updateWorldMatrix(true, false);
     const projected = lid.getWorldPosition(new api.THREE.Vector3()).project(api.camera);
     const ray = new api.THREE.Raycaster();

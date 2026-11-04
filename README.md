@@ -99,7 +99,7 @@ Key rules:
 ```bash
 npm run typecheck   # tsc project build
 npm run lint        # oxlint
-npm test            # 91 deterministic domain, asset, audio and spill tests
+npm test            # 93 domain, motion, asset, audio and spill tests
 npm run test:e2e    # 18 pointer / integration tests against a dedicated E2E build
 npm run test:production # black-box smoke and instrumentation isolation on dist/
 ```

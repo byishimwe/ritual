@@ -105,8 +105,10 @@ test('production artifact rejects test parameters and completes a physical visit
   await page.addInitScript(() => {
     const start = OscillatorNode.prototype.start;
     OscillatorNode.prototype.start = function (when?: number) {
-      void (window as unknown as { observeOscillatorStart: (frequency: number) => Promise<void> })
-        .observeOscillatorStart(this.frequency.value);
+      if (this.type === 'sine') {
+        void (window as unknown as { observeOscillatorStart: (frequency: number) => Promise<void> })
+          .observeOscillatorStart(this.frequency.value);
+      }
       start.call(this, when);
     };
   });

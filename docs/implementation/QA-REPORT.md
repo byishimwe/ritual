@@ -19,14 +19,17 @@ The five failures shared `prepare()`. Its three-second timeout blindly retried a
 
 Local raycast probes intersected the registered lid proxy in both settled poses and observed both physical completion events. The original full journey passed locally, confirming timing-dependent behavior. A deliberate >500 ms frame-stall regression exercises the failure condition: the corrected helper takes more than three seconds, issues exactly one opening command, receives `HOPPER_OPENED` and verifies the actual -96-degree hinge angle without reversal.
 
+The first recovery workflow, [41847523584](https://github.com/byishimwe/ritual/actions/runs/41847523584), ran against `e3f3dade955a73544b5155229a0747f2874700cc` and failed with 12 passes / 6 failures in 541.28 seconds; production smoke was skipped by the upstream failure. Its artifact 13332054621 was inspected. All six failures occurred before the closing click: the preflight assertion saw `ritualHit:beanSupply`, although screenshots showed the jar at rest, the state was LOADED, the lid tween had completed and no gesture was active. The preflight had updated the lid matrix only; the jar proxy retained its earlier carried-world matrix between rendered frames. It now refreshes all potential occluders, matching the production picker. The full journey subsequently passed with the CI software-WebGL flags locally. This failed intermediate workflow is not release evidence.
+
 ## Files and corrections
 
 | Files | Purpose |
 | --- | --- |
 | `tests/e2e/experience.spec.ts` | Remove blind hopper/ingredient retries. Project the rotating registered lid proxy, assert the nearest hit, wait for actual camera and hinge completion. Preserve all 13 original scenarios; add repeated cycles, slow frames, real capture loss, reset while dragging, partial capture/moving cup and duplicate Make checks. |
+| `tests/domain/motion.test.ts` | Real GSAP rapid-reversal ownership, settled hinge, interrupted-tween cleanup and reset-generation regressions. |
 | `src/scene/SceneInput.tsx` | Refresh camera/target world matrices before picking. Cancel genuine lost capture; ignore unrelated/stale loss. Normal pointer-up clears ownership before releasing capture. Blur, cancellation, reset and unmount clear ownership; cancelled bean drags cannot consume ingredients. |
 | `src/runtime/ExperienceRuntime.tsx` | Remove URL time scaling and webdriver-specific clock settings. Same normal fixed-step clock in both artifacts. Expose test controls only in compile-time e2e mode; unsubscribe on cleanup. |
-| `src/scene/CameraRig.tsx`, `RitualScene.tsx`, `services.tsx`, `src/motion/experienceDirector.ts` | Compile-time-only diagnostics: events/rejections, generation, pointer owner/last hit, elapsed input time, camera/pending shot, tween lifecycle/progress. Clean up handles. |
+| `src/scene/CameraRig.tsx`, `RitualScene.tsx`, `services.tsx`, `src/motion/experienceDirector.ts` | Compile-time-only diagnostics: events/rejections, generation, pointer owner/last hit, elapsed input time, camera/pending shot, tween lifecycle/progress. Clean up handles; interrupted tweens leave the ownership set. |
 | `src/scene/ExperienceCanvas.tsx`, Playwright configs, package scripts | Separate test-only `dist-e2e/`, half-resolution/no antialiasing for software integration. Normal `dist/` retains authored quality. Separate output directories and JSON reports. |
 | `tests/production/smoke.spec.ts` | Black-box normal-build checks: absent APIs in bundle and hostile URLs, GLB HTTP/magic, canvas, no conventional UI, physical preparation/pour, rejected premature Pour, actual ready audio cue, coffee across the cup mouth (excluding the stream), visually settled physical motion, canonical-image reset, and no page/console/asset errors. No engine injection. |
 | `.github/workflows/ci.yml` | Domain, pointer/integration and production smoke checks; exact-revision evidence and artifacts on failure; supported action runtimes. |
@@ -37,7 +40,7 @@ Local raycast probes intersected the registered lid proxy in both settled poses 
 
 Deploy only **`dist/`** from `npm run build`. Never deploy **`dist-e2e/`**. Vite's explicit compile-time e2e mode authorizes instrumentation; a query string cannot. The normal bundle eliminates every `__ritual` reference. Normal development also has no engine handle. Test/timeScale query parameters and webdriver do not alter domain timing; automatic quality selection affects rendering only.
 
-Domain tests establish exact 4.0/1.2/4.2-second stages, guards, single cycles, finite-volume accounting and reset. Browser interactions use real pointer events and raycasting. Accelerated integration calls the real fixed-step engine and advances the actual GSAP timelines through their transforms and guarded completion callbacks. It never assigns arbitrary state or dispatches substitute completion commands. The deliberate slow-frame hinge regression remains unaccelerated. A software-WebGL probe also exposed a valid bean-transfer timeline still running after 30 wall-clock seconds; explicit motion advancement resolves that test-environment bottleneck without changing production animation. Real-time production smoke has no test API, uses reduced motion to keep physical projection stable, and observes rendered coffee/reset. It does not replace cinematic/sound/performance acceptance.
+Two additional motion regressions verify rapid hinge reversal ownership, physical settling, interruption cleanup and stale-generation reset protection. Domain tests establish exact 4.0/1.2/4.2-second stages, guards, single cycles, finite-volume accounting and reset. Browser interactions use real pointer events and raycasting. Accelerated integration calls the real fixed-step engine and advances the actual GSAP timelines through their transforms and guarded completion callbacks. It never assigns arbitrary state or dispatches substitute completion commands. The deliberate slow-frame hinge regression remains unaccelerated. A software-WebGL probe also exposed a valid bean-transfer timeline still running after 30 wall-clock seconds; explicit motion advancement resolves that test-environment bottleneck without changing production animation. Real-time production smoke has no test API, uses reduced motion to keep physical projection stable, and observes rendered coffee/reset. It does not replace cinematic/sound/performance acceptance.
 
 Failures attach step context, state, events/rejection reasons, generation, pointer ownership, last target, camera, elapsed input time, tween lifecycle/progress and screenshot. Successful runs remain quiet. All original tests remain: none deleted, skipped or weakened to hide failures.
 
@@ -48,10 +51,10 @@ Failures attach step context, state, events/rejection reasons, generation, point
 | Clean npm ci | Passed; 0 vulnerabilities across all dependency types | 30.31 s |
 | npm run typecheck | Passed | 13.68 s measured standalone run |
 | npm run lint | Passed | 1.90 s measured standalone run |
-| npm test | 91/91 passed, 8 files, Vitest 5.1.0 | 3.79 s runner / 6.24 s command |
+| npm test | 93/93 passed, 9 files, Vitest 5.1.0; includes real GSAP reversal/reset regressions | 2.94 s runner / 6.24 s command |
 | npm run build | Passed; normal dist artifact | 1.15 s Vite / 15.46 s command including tsc |
-| npm run test:e2e | 18/18 passed; 0 skipped, flaky or unexpected | 226.63 s runner including server setup |
-| npm run test:production | 2/2 passed; 0 skipped, flaky or unexpected; native ready cue, settled motion, rendered fill and canonical reset | 100.68 s runner including server setup |
+| npm run test:e2e | 18/18 passed; 0 skipped, flaky or unexpected | 192.53 s runner including server setup |
+| npm run test:production | 2/2 passed; 0 skipped, flaky or unexpected; native ready cue, settled motion, rendered fill and canonical reset | 72.91 s runner including server setup |
 | npm audit | 0 vulnerabilities (production and development) | Completed |
 
 Environment: Windows desktop, Node 24.19.0, system Chrome; Linux/Node 22/Chromium verification is the separate CI result. Software-WebGL probes were used for diagnosis, including the slow bean timeline and a newly added partial-capture threshold calibration; these exploratory failures were corrected, not reported as successful release runs.

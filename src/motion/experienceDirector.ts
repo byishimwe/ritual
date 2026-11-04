@@ -7,6 +7,7 @@ import { dispatchCommand, engine } from '../state/experienceStore';
 import type { ButtonKind, Services } from '../scene/services';
 
 export interface Director {
+  diagnostics?(): { pendingTweens: number };
   dispose(): void;
   pressButton(kind: ButtonKind): void;
   releaseButton(kind: ButtonKind): void;
@@ -37,9 +38,14 @@ export function createDirector(services: Services): Director {
     // Compose with the tween's own completion handler instead of replacing it:
     // the transfer timeline reports COMPLETE_BEAN_TRANSFER from its onComplete.
     const completed = tween.eventCallback('onComplete');
+    const interrupted = tween.eventCallback('onInterrupt');
     tween.eventCallback('onComplete', () => {
       tweens.delete(tween);
       completed?.();
+    });
+    tween.eventCallback('onInterrupt', () => {
+      tweens.delete(tween);
+      interrupted?.();
     });
     return tween;
   };
@@ -341,7 +347,7 @@ export function createDirector(services: Services): Director {
     },
   };
 
-  if (import.meta.env.MODE === 'e2e') {
+  if (import.meta.env.MODE === 'e2e' || import.meta.env.MODE === 'test') {
     Object.assign(api, {
       diagnostics: () => ({
         disposed,
