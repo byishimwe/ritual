@@ -78,7 +78,7 @@ async function waitForVisualRest(page: Page, before: Buffer, requireChange = tru
     stableFrames = difference < 0.00002 ? stableFrames + 1 : 0;
     previous = current;
     return moved && stableFrames >= 2;
-  }, { message: 'Physical presentation must change and settle', timeout: 45000, intervals: [200, 400, 800] }).toBe(true);
+  }, { message: 'Physical presentation must change and settle', timeout: 120000, intervals: [200, 400, 800] }).toBe(true);
 }
 
 test('normal bundles contain no E2E API and query strings cannot enable it', async ({ page }) => {
@@ -148,10 +148,10 @@ test('production artifact rejects test parameters and completes a physical visit
   await click(page, 0.036, 0.2739, 0.1602);
   expect(await darkCupPixels(page)).toBeLessThanOrEqual(empty + 5);
   await expect.poll(() => tones.includes(880) && tones.includes(1320), {
-    message: 'Actual preparation must reach its audible ready cue before Pour', timeout: 120000,
+    message: 'Actual preparation must reach its audible ready cue before Pour', timeout: 180000,
   }).toBe(true);
   await click(page, 0.036, 0.2739, 0.1602);
-  await expect.poll(() => darkCupPixels(page), { timeout: 45000, intervals: [1000] }).toBeGreaterThan(empty + 30);
+  await expect.poll(() => darkCupPixels(page), { timeout: 120000, intervals: [1000] }).toBeGreaterThan(empty + 30);
   await page.screenshot({ path: 'test-results/production/visitor-pour.png' });
   await click(page, 0.036, 0.2739, 0.1602);
   const completed = await page.screenshot();

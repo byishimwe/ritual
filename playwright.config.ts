@@ -21,7 +21,7 @@ export default defineConfig({
     channel: process.env.PLAYWRIGHT_CHANNEL || (process.env.CI ? undefined : 'chrome'),
     baseURL: 'http://127.0.0.1:5183',
     viewport: { width: 1024, height: 612 },
-    trace: 'retain-on-failure',
+    trace: { mode: 'retain-on-failure', screenshots: !process.env.CI, snapshots: true, sources: true },
     screenshot: 'only-on-failure',
     launchOptions: {
       args: process.env.CI

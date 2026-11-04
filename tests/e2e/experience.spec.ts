@@ -65,6 +65,12 @@ async function boot(page: Page, query = '?quality=low'): Promise<void> {
   await waitForCamera(page);
 }
 
+/** GPU-stage photography is local diagnostic output, separate from CI behavior.
+ * Failure screenshots and state snapshots remain unconditional in both runs. */
+async function capture(page: Page, path: string): Promise<void> {
+  if (!process.env.CI) await page.screenshot({ path });
+}
+
 async function snapshot(page: Page): Promise<Snapshot> {
   return page.evaluate(() => {
     const engine = (window as never as { __ritual: { engine: { getState: () => unknown } } }).__ritual.engine;
@@ -344,7 +350,7 @@ test('initial scene is the canonical untouched state', async ({ page }) => {
   expect(state.coffee.cupVolume).toBe(0);
   // The cup starts visibly away from the receiving position.
   expect(Math.abs(state.cup.x)).toBeGreaterThan(0.06);
-  await page.screenshot({ path: 'test-results/captures/10-hero.png' });
+  await capture(page, 'test-results/captures/10-hero.png');
 });
 
 test('hopper pointer target follows both physical poses and repeated cycles', async ({ page }) => {
@@ -452,19 +458,19 @@ test('beans cannot be added through a closed hopper', async ({ page }) => {
 test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) => {
   await boot(page);
   await prepare(page);
-  await page.screenshot({ path: 'test-results/captures/11-prepared.png' });
+  await capture(page, 'test-results/captures/11-prepared.png');
 
   await clickWorld(page, -0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'GRINDING');
   await page.waitForTimeout(1400);
-  await page.screenshot({ path: 'test-results/captures/12-grinding.png' });
+  await capture(page, 'test-results/captures/12-grinding.png');
 
   await fastForwardToMachine(page, 'BREWING');
   await page.waitForTimeout(900);
-  await page.screenshot({ path: 'test-results/captures/13-brewing.png' });
+  await capture(page, 'test-results/captures/13-brewing.png');
 
   await fastForwardToMachine(page, 'READY_TO_POUR');
-  await page.screenshot({ path: 'test-results/captures/14-ready.png' });
+  await capture(page, 'test-results/captures/14-ready.png');
 
   await alignCup(page);
   const aligned = await snapshot(page);
@@ -475,7 +481,7 @@ test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) =>
   // Software rendering in headless browsers advances simulated time more
   // slowly than wall time, so wait on the coffee itself rather than a clock.
   await advanceCoffee(page, 'cupVolume', 0.2);
-  await page.screenshot({ path: 'test-results/captures/15-pouring.png' });
+  await capture(page, 'test-results/captures/15-pouring.png');
 
   const midPour = await snapshot(page);
   expect(midPour.coffee.cupVolume).toBeGreaterThan(0.2);
@@ -483,7 +489,7 @@ test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) =>
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'COMPLETE');
   await page.waitForTimeout(700);
-  await page.screenshot({ path: 'test-results/captures/16-complete.png' });
+  await capture(page, 'test-results/captures/16-complete.png');
 
   const done = await snapshot(page);
   expect(done.coffee.cupVolume).toBeLessThanOrEqual(1.0001);
@@ -499,11 +505,7 @@ test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) =>
 
   // Operator reset returns the scene to its canonical state.
   await page.keyboard.press('r');
-  await page.waitForFunction(() =>
-    (window as never as { __ritual: { engine: { getState: () => Record<string, unknown> } } }).__ritual.engine
-      .getState()
-      .machine === 'OFF',
-  );
+  await waitForMachine(page, 'OFF');
   const reset = await snapshot(page);
   expect(reset.coffee.cupVolume).toBe(0);
   expect(reset.beansLoaded).toBe(false);
@@ -521,7 +523,7 @@ test('misaligned cup misses the coffee entirely', async ({ page }) => {
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'POURING');
   await advanceCoffee(page, 'missedVolume', 0.21);
-  await page.screenshot({ path: 'test-results/captures/17-miss.png' });
+  await capture(page, 'test-results/captures/17-miss.png');
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'COMPLETE');
 
@@ -570,7 +572,7 @@ test('unattended pouring fills the cup, then overflows and exhausts the batch', 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'POURING');
   await advanceCoffee(page, 'overflowVolume', 0.05);
-  await page.screenshot({ path: 'test-results/captures/18-overflow.png' });
+  await capture(page, 'test-results/captures/18-overflow.png');
 
   await fastForwardToMachine(page, 'COMPLETE', 25);
   const state = await snapshot(page);

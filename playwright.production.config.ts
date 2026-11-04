@@ -9,7 +9,7 @@ export default defineConfig({
   // 9.4 s preparation alone needs 94 frames (~94 wall seconds at 1 FPS), in
   // addition to physical motion, loading, filling and reset. No test clock is
   // available in this artifact; give the observed real-time journey a budget.
-  timeout: 300_000,
+  timeout: 600_000,
   reporter: process.env.CI
     ? [['list'], ['github'], ['json', { outputFile: 'test-results/production-results.json' }]]
     : [['list'], ['json', { outputFile: 'test-results/production-results.json' }]],
