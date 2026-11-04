@@ -3,16 +3,19 @@ import { defineConfig, devices } from '@playwright/test';
 /**
  * Browser-level integration test suite (RITUAL-06 §automated-testing).
  *
- * Runs against the Vite dev server with SwiftShader software WebGL under CI,
- * and Chrome under local verification.
+ * Builds a separate E2E artifact with explicit instrumentation, then serves it
+ * with SwiftShader WebGL under CI and system Chrome locally. Never deploy it.
  */
 export default defineConfig({
   testDir: './tests/e2e',
+  outputDir: 'test-results/integration',
   timeout: 120_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
   workers: 1,
-  reporter: process.env.CI ? [['list'], ['github']] : [['list']],
+  reporter: process.env.CI
+    ? [['list'], ['github'], ['json', { outputFile: 'test-results/integration-results.json' }]]
+    : [['list'], ['json', { outputFile: 'test-results/integration-results.json' }]],
   use: {
     ...devices['Desktop Chrome'],
     channel: process.env.PLAYWRIGHT_CHANNEL || (process.env.CI ? undefined : 'chrome'),
@@ -35,11 +38,9 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: process.env.CI
-      ? 'npm run preview -- --host 127.0.0.1 --port 5183 --strictPort'
-      : 'npm run dev -- --host 127.0.0.1 --port 5183 --strictPort',
+    command: 'npm run build:e2e && npm run preview -- --outDir dist-e2e --host 127.0.0.1 --port 5183 --strictPort',
     url: 'http://127.0.0.1:5183',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 60_000,
   },
 });

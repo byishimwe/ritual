@@ -6,12 +6,14 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:e2e": "tsc -b && vite build --mode e2e --outDir dist-e2e",
     "preview": "vite preview",
     "typecheck": "tsc -b --pretty false",
     "lint": "oxlint",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:production": "playwright test --config playwright.production.config.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",
@@ -35,7 +37,7 @@
     "@vitejs/plugin-react": "^6.1.1",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
-    "vite": "^8.3.0",
-    "vitest": "^3.2.7"
+    "vite": "^8.3.5",
+    "vitest": "^5.1.0"
   }
 }

@@ -64,6 +64,17 @@ export function SceneInput() {
 
   useEffect(() => {
     const element = gl.domElement;
+    let lastPick: { at: number; x: number; y: number; kind: InteractiveKind | null } | null = null;
+    let debugApi: Record<string, unknown> | undefined;
+    if (import.meta.env.MODE === 'e2e') {
+      const host = window as unknown as { __ritual?: Record<string, unknown> };
+      debugApi = host.__ritual = host.__ritual ?? {};
+      debugApi.input = () => ({
+        gesture: gesture.current,
+        lastPick,
+        elapsedSincePointerDownMs: lastPick ? performance.now() - lastPick.at : null,
+      });
+    }
 
     const toNdc = (event: PointerEvent) => {
       const rect = element.getBoundingClientRect();
@@ -76,6 +87,10 @@ export function SceneInput() {
 
     const pick = (event: PointerEvent): InteractiveKind | null => {
       if (services.targets.size === 0) return null;
+      // Motion can update transforms between rendered frames. Picking must use
+      // the current hierarchy, including the rotating lid's child proxy.
+      camera.updateWorldMatrix(true, false);
+      for (const object of services.targets.values()) object.updateWorldMatrix(true, true);
       toNdc(event);
       const objects = Array.from(services.targets.values());
       const hits = raycaster.intersectObjects(objects, true);
@@ -152,6 +167,7 @@ export function SceneInput() {
 
       if (engine.getState().machine === 'RESETTING') return;
       const kind = pick(event);
+      if (import.meta.env.MODE === 'e2e') lastPick = { at: performance.now(), x: event.clientX, y: event.clientY, kind };
       if (!kind) return;
 
       // Claim ownership: OrbitControls must not also start a rotation.
@@ -247,8 +263,12 @@ export function SceneInput() {
       endGesture(true);
     };
 
-    const onLostCapture = () => {
-      // Synthetic lost capture in headless environments must not abort gestures.
+    const onLostCapture = (event: PointerEvent) => {
+      const active = gesture.current;
+      // Normal pointer-up clears ownership before releasing capture. Ignore a
+      // stale notification if this pointer has already acquired capture again.
+      if (!active || active.pointerId !== event.pointerId || element.hasPointerCapture(event.pointerId)) return;
+      endGesture(true);
     };
 
     const onBlur = () => {
@@ -274,6 +294,8 @@ export function SceneInput() {
       element.removeEventListener('lostpointercapture', onLostCapture);
       window.removeEventListener('blur', onBlur);
       unsubscribe();
+      endGesture(true);
+      if (debugApi) delete debugApi.input;
     };
   }, [camera, gl, pointer, raycaster, services, planePoint]);
 

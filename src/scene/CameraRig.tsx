@@ -85,13 +85,15 @@ export function CameraRig() {
 
   // Framings for visual review and browser tests.
   useEffect(() => {
-    if (!import.meta.env.DEV && !window.location.search.includes('test')) return;
+    if (import.meta.env.MODE !== 'e2e') return;
     const host = window as unknown as { __ritual?: Record<string, unknown> };
     const api = (host.__ritual = host.__ritual ?? {});
     api.THREE = THREE;
     api.camera = camera;
     api.scene = scene;
+    api.cameraMotion = () => ({ active: Boolean(tween.current?.isActive()), pending: pending.current });
     api.project = (x: number, y: number, z: number) => {
+      camera.updateWorldMatrix(true, false);
       const point = new THREE.Vector3(x, y, z).project(camera);
       const rect = gl.domElement.getBoundingClientRect();
       return {
@@ -138,6 +140,9 @@ export function CameraRig() {
           maxDistance: controls.maxDistance,
         },
       };
+    };
+    return () => {
+      for (const key of ['THREE', 'camera', 'scene', 'project', 'setCamera', 'orbit', 'cameraMotion']) delete api[key];
     };
   }, [camera, gl, scene]);
 

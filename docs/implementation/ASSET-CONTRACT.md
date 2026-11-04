@@ -3,7 +3,7 @@
 **Asset:** `public/assets/models/coffee_machine.glb`
 **Runtime adapter:** `src/assets/ritualModel.ts`
 **Constants:** `src/config/asset.ts`
-**Validation:** `src/assets/ritualModel.ts` validates required nodes, finite transforms and bounding dimensions, throwing `AssetContractError` on violation; 13 unit tests in `tests/domain/assets.test.ts` and 10 browser e2e tests in `tests/e2e/experience.spec.ts` exercise contract enforcement.
+**Validation:** `src/assets/ritualModel.ts` validates required nodes, finite transforms and bounding dimensions, throwing `AssetContractError` on violation; 13 unit tests in `tests/domain/assets.test.ts` and the browser integration tests in `tests/e2e/experience.spec.ts` exercise contract enforcement.
 
 The GLB is authored with world-space vertex data baked into the mesh geometry. Most scene nodes therefore have identity transforms; `HopperLid` and `coffeeBeans` are the exceptions and must keep their authored pivots/transforms.
 

@@ -30,6 +30,7 @@ export function createDirector(services: Services): Director {
   let lidTween: gsap.core.Tween | null = null;
   let indicatorTween: gsap.core.Tween | null = null;
   let disposed = false;
+  let lidLifecycle = 'IDLE';
 
   const track = <T extends Tween>(tween: T): T => {
     tweens.add(tween);
@@ -81,15 +82,20 @@ export function createDirector(services: Services): Director {
     }
     const gen = generation();
     lidTween?.kill();
+    if (import.meta.env.MODE === 'e2e') lidLifecycle = 'RUNNING';
     lidTween = track(gsap.to(lid.rotation, {
       x: open ? LID.openAngle : 0,
       duration: open ? MOTION.hopperOpen : MOTION.hopperClose,
       ease: 'power2.inOut',
       overwrite: true,
       onComplete: guarded(gen, () => {
+        if (import.meta.env.MODE === 'e2e') lidLifecycle = 'COMPLETED';
         dispatchCommand({ type: 'HOPPER_MOTION_COMPLETE' });
         if (open) audio.steamHiss(0.4);
       }),
+      onInterrupt: () => {
+        if (import.meta.env.MODE === 'e2e') lidLifecycle = 'CANCELLED';
+      },
     }));
   };
 
@@ -334,6 +340,19 @@ export function createDirector(services: Services): Director {
       );
     },
   };
+
+  if (import.meta.env.MODE === 'e2e') {
+    Object.assign(api, {
+      diagnostics: () => ({
+        disposed,
+        generation: generation(),
+        pendingTweens: tweens.size,
+        lidLifecycle,
+        lid: lidTween ? { active: lidTween.isActive(), progress: lidTween.progress(), duration: lidTween.duration() } : null,
+        lidAngle: services.rig.lid?.rotation.x,
+      }),
+    });
+  }
 
   return api;
 }

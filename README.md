@@ -11,7 +11,7 @@ The approved specification lives in [`docs/`](docs); this README is the engineer
 ## Quick start
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -100,10 +100,11 @@ Key rules:
 npm run typecheck   # tsc project build
 npm run lint        # oxlint
 npm test            # 91 deterministic domain, asset, audio and spill tests
-npm run test:e2e    # 10 Playwright browser journey tests (starts its own dev server)
+npm run test:e2e    # 18 pointer / integration tests against a dedicated E2E build
+npm run test:production # black-box smoke and instrumentation isolation on dist/
 ```
 
-The browser suite covers:
+The browser suite covers (including the original 13 scenarios):
 
 - canonical untouched state
 - beans rejected through a closed hopper
@@ -117,6 +118,12 @@ The browser suite covers:
 - persistent world-space spill puddles that do not travel with cup movement
 
 The Playwright config uses the system Chrome or bundled Chromium in CI (`PLAYWRIGHT_CHANNEL` or standard Chromium) with SwiftShader enabled so WebGL runs headless. Software rendering advances simulated time more slowly than wall time; assertions wait on authoritative state/volumes rather than fixed sleep durations.
+
+The deployable exhibition artifact is **only `dist/`**, produced by `npm run build`. Test instrumentation is authorized only at compile time by Vite's explicit `e2e` mode. `npm run build:e2e` writes a separate **`dist-e2e/`** artifact; Playwright builds and serves it automatically. Never deploy `dist-e2e/`. It uses half-resolution, non-antialiased rendering to keep software WebGL interaction checks practical; artistic acceptance uses the normal production artifact. Both artifacts use the same real engine, guards, fixed-step clock and domain rules.
+
+Normal development and production expose no `window.__ritual`. `?test=true` and `?timeScale=5` cannot enable APIs or change simulation timing. Automation detection affects optional rendering quality only. The integration harness issues real pointer events, asserts that the rotating lid proxy receives each click, then waits for GSAP's real completion callback without retrying a toggle. Deterministic advancement runs the engine for long numerical stages; explicit motion advancement traverses the real GSAP timelines, transforms and guarded completion callbacks. Neither assigns arbitrary machine states. A separate slow-frame regression waits for unaccelerated hinge motion. Failure artifacts include step, state, events/rejection reasons, session generation, pointer owner, camera, elapsed input time and motion lifecycle.
+
+GitHub Actions runs domain checks, the full pointer/integration suite and a separate production smoke suite. Every run uploads `playwright-results`, including `release-verification.json` with the exact commit, branch, run URL and each check's outcome. Use that evidence with the [QA report](docs/implementation/QA-REPORT.md) to identify the verified revision.
 
 There is no automated substitute for the remaining artistic and exhibition acceptance: material quality, motion weight, sound balance, discoverability and performance on the actual exhibition hardware still require human review on that hardware.
 
@@ -142,7 +149,7 @@ There is no automated substitute for the remaining artistic and exhibition accep
 
 ## Status and known limitations
 
-The implementation is feature-complete against the approved interaction, coffee, reset and recovery specifications, with the automated checks above passing. It is not yet an approved exhibition release: target-hardware performance, final sound mix and human usability/visual acceptance remain to be recorded on the exhibition machine.
+The implementation preserves the approved interaction, coffee, reset and recovery specifications. The [QA report](docs/implementation/QA-REPORT.md) records the actual verification evidence; CI results must correspond to the exact candidate commit. It is not yet an approved exhibition release: target-hardware performance, final sound mix and human usability/visual acceptance remain to be recorded on the exhibition machine.
 
 Known non-blocking limitations:
 

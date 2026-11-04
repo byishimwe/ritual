@@ -28,6 +28,7 @@ export interface Rig {
 }
 
 export interface MotionApi {
+  diagnostics?(): unknown;
   pressButton(kind: ButtonKind): void;
   releaseButton(kind: ButtonKind): void;
   /** Restrained, non-verbal acknowledgement that a control is unavailable. */

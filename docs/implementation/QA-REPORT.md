@@ -1,184 +1,88 @@
-# QA Report — Ritual Implementation Completion & Release Gate Assessment
+# Ritual — Recovery and Release Verification
 
-**Date:** 2 November 2026  
-**Repository:** https://github.com/byishimwe/ritual  
-**Branch:** `feat/ritual-complete-implementation`  
-**Classification:** **Release Candidate (RC)** — Verified Software Baseline, Ready for Onsite Exhibition Rehearsal.  
+Date: 4 November 2026 (Africa/Johannesburg). Branch: `feat/ritual-complete-implementation`.
+Status: software candidate verification in progress; exhibition approval pending.
 
----
+## Revision and evidence
 
-## 1. Executive Summary
+This report is versioned with the candidate. The final revision is the Git commit containing this report (`git rev-parse HEAD`). Every CI run records its immutable SHA, branch, run URL and individual check outcomes in its job summary and uploaded `playwright-results/release-verification.json`. Use that exact-SHA evidence; a previous workflow does not verify a later commit. A report cannot embed the hash of its own containing commit.
 
-This report documents the corrective engineering, defect remediation, and quality gate assessment for the Ritual espresso experience.
+Final CI results require the exact-revision workflow readback; local results are recorded below.
 
-All confirmed code defects have been resolved and verified with automated test coverage:
-1. Azimuth bounds and orbit envelope constraints are enforced.
-2. Camera event ownership is decoupled between manual orbit, physical object manipulation, and cinematic choreography.
-3. Liquid capture fraction is evaluated strictly against authoritative domain state (`engine.getState().cup.position`), eliminating stale one-frame coordinate skew in visual stream and runoff rendering.
-4. Prefers-reduced-motion suppresses non-essential camera animation while preserving immediate canonical hero framing restoration on reset.
-5. Persistent world-space spill deposits record stationary countertop puddles.
-6. Cup pointer grab-offset preservation prevents visual jumps when grabbing the vessel rim or handle.
-7. Strict asset contracts throw `AssetContractError` and trigger the dedicated fatal recovery UI.
-8. Unused development artifacts (`fakeControls`, `DreiControls`, `controlsFallback.ts`) have been pruned.
-9. CI performance bottlenecks under software WebGL (SwiftShader) have been eliminated through automated quality tier detection, Playwright launch configuration, and deterministic state synchronization.
-10. Playwright artifact upload on failure has been configured in the CI workflow.
+## Audited baseline and root cause
 
----
+The clean checkout and GitHub working branch both started at `cbee291cf677916b5282532cdc39aec18d9ea431`; fetch and symmetric revision comparison returned 0/0. Specifications RITUAL-00 through RITUAL-06, README, asset contract, prior QA report, interaction code and CI were consulted. The connected Drive Ritual folder contains the corresponding seven source documents.
 
-## 2. Evidence Classification & Verification Levels
+[Audited run 41649722001](https://github.com/byishimwe/ritual/actions/runs/41649722001) failed: typecheck, lint, 91 domain tests and production build passed; browser tests had 8 passes and 5 failures. Artifact 13236298818 was downloaded and its five traces, screenshots and error contexts inspected.
 
-To prevent over-claiming readiness, this report strictly categorizes verification into distinct evidence tiers:
+The five failures shared `prepare()`. Its three-second timeout blindly retried a toggle even after the first click started motion. GSAP's default lag smoothing converts frame gaps over 500 ms into 33 ms of animation progress. Software rendering can therefore stretch a 0.7-second hinge animation beyond three wall-clock seconds. The retry reverses the accepted target and kills/replaces its tween; the helper then waits for the original target it just undid. Traces show the lid/camera projection changing on the second click and the opposite final physical pose. This is a synchronization/retry defect, not five separate brewing/camera/coffee defects.
 
-| Tier | Scope | Status | Notes |
-|---|---|---|---|
-| **Tier 1 — Local Automated Verification** | Typecheck, lint, unit & domain test suites, E2E browser test suite | **VERIFIED** | 91/91 unit tests pass; 13/13 Playwright tests pass; 0 type errors; 0 linter warnings. |
-| **Tier 2 — Production Smoke Testing** | `npm run build` and Vite preview server | **VERIFIED** | Clean production bundle generated in <1s; served via HTTP 200; WebGL renders without errors. |
-| **Tier 3 — Developer Visual Inspection** | Inspection of test-generated snapshots and interaction replays | **VERIFIED** | Hero shot, hopper discoverability, grinding pulse, brewing vibration, vertical stream alignment, partial capture, stationary overflow, steam subtlety reviewed. |
-| **Tier 4 — CI Automation** | GitHub Actions workflow execution | **CONFIGURED & PUSHED** | Workflow timeout set to 10m; Playwright failure artifact upload enabled; SwiftShader headless flags configured. |
-| **Tier 5 — Target Hardware Performance** | Execution on physical kiosk machine & target display | **PENDING ONSITE** | Verified on desktop Chrome (GPU) and headless Chromium (SwiftShader). Onsite 60 FPS kiosk benchmark required. |
-| **Tier 6 — Venue Sound Listening** | Auditioning procedural audio on physical venue speakers | **PENDING ONSITE** | Web Audio procedural graph and lifecycle verified in browser. Acoustic balance and level check required on venue sound system. |
-| **Tier 7 — Unfamiliar Visitor Rehearsal** | Discoverability test with unguided test visitors | **PENDING ONSITE** | Physical direct manipulation validated by automated scenarios; human discoverability requires live rehearsal. |
+Local raycast probes intersected the registered lid proxy in both settled poses and observed both physical completion events. The original full journey passed locally, confirming timing-dependent behavior. A deliberate >500 ms frame-stall regression exercises the failure condition: the corrected helper takes more than three seconds, issues exactly one opening command, receives `HOPPER_OPENED` and verifies the actual -96-degree hinge angle without reversal.
 
----
+## Files and corrections
 
-## 3. Command Execution Summary
+| Files | Purpose |
+| --- | --- |
+| `tests/e2e/experience.spec.ts` | Remove blind hopper/ingredient retries. Project the rotating registered lid proxy, assert the nearest hit, wait for actual camera and hinge completion. Preserve all 13 original scenarios; add repeated cycles, slow frames, real capture loss, reset while dragging, partial capture/moving cup and duplicate Make checks. |
+| `src/scene/SceneInput.tsx` | Refresh camera/target world matrices before picking. Cancel genuine lost capture; ignore unrelated/stale loss. Normal pointer-up clears ownership before releasing capture. Blur, cancellation, reset and unmount clear ownership; cancelled bean drags cannot consume ingredients. |
+| `src/runtime/ExperienceRuntime.tsx` | Remove URL time scaling and webdriver-specific clock settings. Same normal fixed-step clock in both artifacts. Expose test controls only in compile-time e2e mode; unsubscribe on cleanup. |
+| `src/scene/CameraRig.tsx`, `RitualScene.tsx`, `services.tsx`, `src/motion/experienceDirector.ts` | Compile-time-only diagnostics: events/rejections, generation, pointer owner/last hit, elapsed input time, camera/pending shot, tween lifecycle/progress. Clean up handles. |
+| `src/scene/ExperienceCanvas.tsx`, Playwright configs, package scripts | Separate test-only `dist-e2e/`, half-resolution/no antialiasing for software integration. Normal `dist/` retains authored quality. Separate output directories and JSON reports. |
+| `tests/production/smoke.spec.ts` | Black-box normal-build checks: absent APIs in bundle and hostile URLs, GLB HTTP/magic, canvas, no conventional UI, physical preparation/pour, rejected premature Pour, actual ready audio cue, coffee across the cup mouth (excluding the stream), visually settled physical motion, canonical-image reset, and no page/console/asset errors. No engine injection. |
+| `.github/workflows/ci.yml` | Domain, pointer/integration and production smoke checks; exact-revision evidence and artifacts on failure; supported action runtimes. |
+| README, asset contract, QA report | Remove stale passing/timeout/count claims; document deployment/test separation and human acceptance. |
+| package manifest/lock, Vitest config | Updated development verification tooling and explicit domain-test collection. |
 
-All commands were executed against the current branch:
+## Instrumentation boundary and verification responsibilities
 
-| Command | Environment / Target | Outcome | Details |
-|---|---|---|---|
-| `npm run typecheck` | `tsc -b --pretty false` | **PASS** | 0 type errors across all application and test modules |
-| `npm run lint` | `oxlint` | **PASS** | 0 errors, 0 warnings across 56 source and test files |
-| `npm test` | Vitest v3.2.7 | **PASS** | **91 tests passed** (8 test files, 100% pass rate in 2.1s) |
-| `npm run test:e2e` | Playwright v1.64.1 | **PASS** | **13 tests passed** (1 worker, ~6.2m full execution) |
-| `npm run build` | `tsc -b && vite build` | **PASS** | Client bundle built in 684ms (1,319 kB JS / 373 kB gzip; 1.92 kB CSS) |
-| `npm run preview` | Vite Preview Server | **PASS** | Production bundle loads cleanly; HTTP 200; WebGL renders without errors |
+Deploy only **`dist/`** from `npm run build`. Never deploy **`dist-e2e/`**. Vite's explicit compile-time e2e mode authorizes instrumentation; a query string cannot. The normal bundle eliminates every `__ritual` reference. Normal development also has no engine handle. Test/timeScale query parameters and webdriver do not alter domain timing; automatic quality selection affects rendering only.
 
----
+Domain tests establish exact 4.0/1.2/4.2-second stages, guards, single cycles, finite-volume accounting and reset. Browser interactions use real pointer events and raycasting. Accelerated integration calls the real fixed-step engine and advances the actual GSAP timelines through their transforms and guarded completion callbacks. It never assigns arbitrary state or dispatches substitute completion commands. The deliberate slow-frame hinge regression remains unaccelerated. A software-WebGL probe also exposed a valid bean-transfer timeline still running after 30 wall-clock seconds; explicit motion advancement resolves that test-environment bottleneck without changing production animation. Real-time production smoke has no test API, uses reduced motion to keep physical projection stable, and observes rendered coffee/reset. It does not replace cinematic/sound/performance acceptance.
 
-## 4. Test Suites & Coverage Breakdown
+Failures attach step context, state, events/rejection reasons, generation, pointer ownership, last target, camera, elapsed input time, tween lifecycle/progress and screenshot. Successful runs remain quiet. All original tests remain: none deleted, skipped or weakened to hide failures.
 
-### 4.1 Unit & Domain Test Suite (`npm test` — 91 tests)
+## Verification record
 
-- **`tests/domain/stateMachine.test.ts` (24 tests):** Command guards, state transitions (`OFF`, `PREPARATION`, `GRINDING`, `BREWING`, `READY_TO_POUR`, `POURING`, `COMPLETE`, `RESETTING`), preparation-first enforcement, duplicate batch prevention, and timing boundaries.
-- **`tests/domain/runtime.test.ts` (13 tests):** Simulation clock fixed-step time slicing (1/60s), delta clamping, stall protection, frame loop coordination, and visibility tracking.
-- **`tests/domain/spatial.test.ts` (11 tests):** Spatial tolerances, click slop, hopper drop zone detection, cup placement bounds, and drag constraint clamping.
-- **`tests/domain/coffee.test.ts` (10 tests):** Authoritative volume accounting (1.30 unit batch, 1.00 cup capacity, 0.125 rate), full/partial/zero capture fractions, in-flight parcel conservation, and batch exhaustion.
-- **`tests/domain/reset.test.ts` (10 tests):** Atomic logical reset, session generation increment, invalidation of stale asynchronous callbacks, visitor command rejection during reset, idempotence, in-flight cancellation, and puddle clearance.
-- **`tests/domain/assets.test.ts` (13 tests):** Contract validation for all 9 required nodes (`body`, `HopperLid`, `Hopper`, `coffeeSpout`, `coffeeCup`, `btnPower`, `btnMake`, `btnPour`, `coffeeBeans`), rejection of non-finite matrix transforms (NaN/Inf), and out-of-envelope dimension rejection.
-- **`tests/domain/audio.test.ts` (5 tests):** One-shot source registration and lifecycle cleanup, `stopAll()` cancellation of continuous loops and queued one-shots, bean pour cancellation, and single-loop restoration on tab resume.
-- **`tests/domain/spills.test.ts` (5 tests):** World-space stationary spill persistence for missed stream and overflow puddles, cup displacement independent of puddle coordinates, new puddle accumulation at updated cup position, and total spilled volume conservation.
+| Check | Local result | Execution time |
+| --- | --- | --- |
+| Clean npm ci | Passed; 0 vulnerabilities across all dependency types | 30.31 s |
+| npm run typecheck | Passed | 13.68 s measured standalone run |
+| npm run lint | Passed | 1.90 s measured standalone run |
+| npm test | 91/91 passed, 8 files, Vitest 5.1.0 | 3.79 s runner / 6.24 s command |
+| npm run build | Passed; normal dist artifact | 1.15 s Vite / 15.46 s command including tsc |
+| npm run test:e2e | 18/18 passed; 0 skipped, flaky or unexpected | 226.63 s runner including server setup |
+| npm run test:production | 2/2 passed; 0 skipped, flaky or unexpected; native ready cue, settled motion, rendered fill and canonical reset | 100.68 s runner including server setup |
+| npm audit | 0 vulnerabilities (production and development) | Completed |
 
-### 4.2 End-to-End Browser Test Suite (`npm run test:e2e` — 13 tests)
+Environment: Windows desktop, Node 24.19.0, system Chrome; Linux/Node 22/Chromium verification is the separate CI result. Software-WebGL probes were used for diagnosis, including the slow bean timeline and a newly added partial-capture threshold calibration; these exploratory failures were corrected, not reported as successful release runs.
 
-1. **`initial scene is the canonical untouched state`:** Default state (`OFF`, lid closed, beans available, cup at rest, volume 0).
-2. **`beans cannot be added through a closed hopper`:** Direct bean transfer rejected when hopper lid is shut.
-3. **`full ritual: prepare, brew, pour into an aligned cup`:** Complete visitor journey (open hopper, transfer beans, close hopper, power machine, start grind, mechanical pause, brew, align cup, pour coffee, stop pour, verify volume conservation, and operator reset).
-4. **`misaligned cup misses the coffee entirely`:** Unaligned cup collects 0 volume; all dispensed coffee lands as missed surface spill on the drip tray grille.
-5. **`unattended pouring fills the cup, then overflows and exhausts the batch`:** Full cup fill (1.00 unit), overflow (>0.15 unit), and complete batch exhaustion.
-6. **`orbit stays inside its approved azimuth, polar and zoom envelope`:** Stresses manual camera drag across all axes; verifies camera clamps within azimuth bounds [−160°, +160°], polar limits, and distance limits; verifies reset from far orbit returns precisely to hero shot.
-7. **`a cinematic shot survives the short Make button gesture`:** Pressing Make button does not cancel or discard the subsequent grinding cinematic camera framing.
-8. **`manual orbit immediately overrides an active cinematic move`:** User pointer drag on empty stage immediately aborts guided camera transitions and retains visitor viewpoint.
-9. **`grabbing the cup rim does not snap its centre to the pointer`:** Grab-offset preservation; grabbing the cup by the rim does not cause the cup to jump under the cursor.
-10. **`overflow stays on the stage when the cup is moved, and reset clears it`:** Overflow puddles remain fixed at world coordinates when the filled cup is dragged away; operator reset clears all puddles.
-11. **`reduced motion suppresses cinematic shots but restores hero camera on reset`:** Validates that under `prefers-reduced-motion: reduce`, non-essential cinematic camera moves are suppressed while operator reset immediately restores canonical hero framing.
-12. **`corrupted or missing asset produces the recovery card and offers reload`:** Verifies that a network failure or corrupted GLB activates the React `ErrorBoundary` and displays the `.ritual-fatal` recovery card without rendering an interactive broken canvas.
-13. **`contract asset failure dispatches fatal recovery state with error details`:** Verifies that an `AssetContractError` triggers the fatal error boundary with specific missing node details and reload action.
+CI: pending exact-commit execution. Workflow timeout remains 20 minutes. Its JSON reports include test counts, skips, failures and durations; its exact-revision evidence records each required check outcome. No claim of green CI is made from local results.
 
----
+Warnings: the existing approximately 1.32 MB minified / 373.5 kB gzipped main JavaScript bundle exceeds Vite's 500 kB warning threshold. This is recorded for target-hardware loading/performance review; it was not suppressed or hidden. The dependencies were updated to Vite 8.3.5 and Vitest 5.1.0; a clean install and audit report zero vulnerabilities.
 
-## 5. Confirmed Defects Repaired
+## Asset and visual evidence
 
-### C-01: Unbounded Horizontal Orbit Constraints
-- **File:** `src/scene/CameraRig.tsx`
-- **Correction:** Connected `minAzimuthAngle={CAMERA.orbit.minAzimuth}` and `maxAzimuthAngle={CAMERA.orbit.maxAzimuth}` to Drei `OrbitControls`.
+The Blender GLB and adapter were preserved. GLB SHA-256: `0348111ade1d552f89b602f665a0f35dded0270f33b1e68f15cc5018a26e56d6`.
 
-### C-02: Guided Camera Event Ownership During Pointer Gestures
-- **File:** `src/scene/CameraRig.tsx`
-- **Correction:** Decoupled manual orbit, physical object manipulation, and cinematic choreography. Button presses no longer cancel camera moves; object drags defer shots until release; manual orbit immediately overrides active tweens.
+Production pouring and reset screenshots were inspected: the machine/studio composition, loaded hopper, stream into the aligned cup and canonical reset are present. Low-resolution integration captures establish behavior, not artistic acceptance. Headless software WebGL is not an exhibition performance benchmark.
 
-### L-01: Liquid Capture Evaluation Order & Coordinate Skew
-- **File:** `src/scene/LiquidStream.tsx`
-- **Correction:** Reordered evaluations so `cup.getWorldPosition(cupWorld)` is called before reading cup coordinates. Capture fraction is evaluated directly from authoritative domain state `engine.getState().cup.position`, eliminating visual coordinate lag while the cup is being dragged.
+## R1–R6 release gates
 
-### C-03: Reduced-Motion Camera Reset Suppression
-- **File:** `src/scene/CameraRig.tsx`
-- **Correction:** Allowed `RESET_STARTED` and `RESET_COMPLETED` events to execute under `reducedMotion: true` by performing an immediate, non-disorienting reset to the canonical hero framing, while continuing to suppress non-essential intermediate cinematic transitions.
+| Gate | Status | Evidence / outstanding acceptance |
+| --- | --- | --- |
+| R1 — Functional Integrity | Pending final verification | Exact-SHA workflow, domain timing/guards and complete pointer journey. |
+| R2 — Physical Consistency | Pending final verification | Proxy targeting, full/partial/missed capture, finite batch, overflow, stationary spills, conservation and reset; final human plausibility review remains. |
+| R3 — Cinematic Quality | Pending owner acceptance | Art direction preserved; normal/high-quality motion, materials, lighting, coffee and synchronized sound need approval on target display. |
+| R4 — Engineering Reliability | Pending final verification | Automated checks, capture-loss/reset ownership, build isolation and exact-SHA workflow. |
+| R5 — Performance & Compatibility | Pending target hardware | Local Chrome/CI Chromium do not establish sustained FPS, venue compatibility, memory stability or venue audio. |
+| R6 — Exhibition Operation | Pending deployment/rehearsal | Runbook/version identification exist; approved target deployment and unfamiliar visitor rehearsal remain. |
 
-### A-01: Untracked One-Shot Audio Nodes on Reset
-- **File:** `src/audio/audioEngine.ts`
-- **Correction:** Implemented centralized `Map<AudioScheduledSourceNode, OneShot>` tracking every created one-shot. `stopAll()` applies an immediate fast exponential gain ramp to zero and stops the source.
+Not exhibition-ready until all six gates pass.
 
-### A-02: Audio State Synchronization Across Tab Visibility Changes
-- **File:** `src/runtime/ExperienceRuntime.tsx`, `src/audio/audioEngine.ts`
-- **Correction:** On tab restore (<60s), `audio.resume(machineState)` re-synchronizes the single active process loop corresponding to authoritative machine state.
+## Precise owner actions
 
-### S-01: Overflow Puddle Moving With the Cup
-- **File:** `src/domain/experienceEngine.ts`, `src/scene/SpillPuddles.tsx`
-- **Correction:** Created authoritative `SpillDeposit` entities that record stationary world coordinates (`x`, `y`, `z`) at impact. Moving the cup leaves existing puddles stationary.
-
-### I-01: Cup Center Snapping to Cursor on Grab
-- **File:** `src/scene/SceneInput.tsx`
-- **Correction:** Computed pointer-to-cup offset `(offsetX, offsetZ)` on pointer-down and maintained that offset throughout the drag gesture.
-
-### M-01: Silent Fallback for Missing Essential GLB Nodes
-- **File:** `src/assets/ritualModel.ts`, `src/scene/RitualScene.tsx`, `src/App.tsx`
-- **Correction:** Implemented `AssetContractError` throwing on missing required nodes, non-finite transforms, or out-of-envelope scales. Dispatches `ritual:asset-failure` and renders `<FatalError />`.
-
-### L-02 / L-03: Shader Color Management & Duplicate Shader Includes
-- **File:** `src/scene/LiquidStream.tsx`, `src/scene/SteamEffect.tsx`
-- **Correction:** Removed redundant header includes while preserving tone mapping and color space fragments in `void main()`.
-
-### R-01: Untracked GSAP Tweens & Delayed Calls
-- **File:** `src/motion/experienceDirector.ts`
-- **Correction:** Registered all tweens, timelines, button animations, lid motions, and delayed calls via `track(...)`. `dispose()` and reset kill all active tweens and restore canonical transforms.
-
-### DEAD-01: Dead Development Artifacts
-- **Files:** `src/scene/CameraRig.tsx`, `src/scene/controlsFallback.ts`
-- **Correction:** Pruned unused exports `fakeControls`, `DreiControls`, and deleted unused stub `controlsFallback.ts`.
-
-### CI-01: Headless Software WebGL Slowdown & Timeout Hang
-- **Files:** `src/runtime/qualityManager.ts`, `playwright.config.ts`, `.github/workflows/ci.yml`, `tests/e2e/experience.spec.ts`
-- **Correction:**
-  - Automated headless/SwiftShader detection to resolve to `'low'` quality tier (disabling 2048×2048 shadow passes and bloom passes under software emulation).
-  - Added CI Chromium flags (`--no-sandbox`, `--disable-dev-shm-usage`, `--use-gl=angle`, `--use-angle=swiftshader`, `--enable-unsafe-swiftshader`).
-  - Synchronized `prepare()` with `hopperMotion === 'IDLE'` and added settle delays for camera transitions.
-  - Added Playwright failure artifact upload and reduced CI job timeout to 10m.
-
----
-
-## 6. Release Gate Assessment (Document 06)
-
-Document 06 (§30.5, §33) defines six release gates. A release is exhibition-ready only when all six gates pass.
-
-| Release Gate | Document 06 Requirements | Status | Supporting Evidence & Remaining Actions |
-|---|---|---|---|
-| **Gate R1 — Functional Integrity** | Essential interactions work; state transitions correct; preparation-first preserved; pouring user-controlled; reset reliable. | **PASS** | 91/91 unit tests passing, 13/13 E2E tests passing. Command guards, state machine, volume accounting, and atomic reset fully verified. |
-| **Gate R2 — Physical Consistency** | Geometry and interactions align; cup placement affects capture; liquid volume consistent; spills and overflow coherent; no impossible behavior. | **PASS** | Verified by `capture.ts`, `coffee.test.ts`, `spills.test.ts`, and E2E tests 3, 4, 5, 10. Stationary world-space spill deposits confirmed. |
-| **Gate R3 — Cinematic Quality** | Materials believable; lighting controlled; camera restrained; animation feels tactile; sound synchronized; pouring visually satisfying. | **OPEN (Pending Human Artistic Sign-off)** | Automated tests confirm camera envelope, GSAP timelines, and Web Audio sync. Screenshots 10–18 reviewed. Final aesthetic approval on the exhibition display and lighting environment must be signed off by the Creative Director. |
-| **Gate R4 — Engineering Reliability** | Automated tests pass; no stale timers; no audio lifecycle leaks; no stuck pointer capture; no unrecoverable states; repeated use stable. | **PASS** | 100% automated test pass rate. Oxlint 0 warnings/0 errors. Session generation fencing, one-shot audio tracking, and visibility policies verified. |
-| **Gate R5 — Performance & Compatibility** | Target hardware tested; target browser tested; performance acceptable; loading and recovery work; audio works in target environment. | **OPEN (Pending Target Hardware Benchmark)** | Verified locally on Chrome and headless Chromium under SwiftShader. 60 FPS target framerate, GPU thermal stability, and sound card latency must be benchmarked on the physical kiosk machine onsite. |
-| **Gate R6 — Exhibition Operation** | Production build deployed; launch and reset documented; operator recovery documented; final version identifiable; complete visitor rehearsal passes. | **OPEN (Pending Venue Rehearsal)** | Production build verified (`dist/`). Runbook documented in `README.md`. Final exhibition rehearsal with unfamiliar visitors in the gallery space remains to be conducted. |
-
----
-
-## 7. Onsite Venue Acceptance Checklist
-
-Before public exhibition, the project owner should execute the following physical verification steps on the venue kiosk:
-
-1. **Hardware & Kiosk Deployment:**
-   - [ ] Clone repository and checkout release commit on the physical kiosk PC.
-   - [ ] Run `npm run build` followed by `npm run preview` (or host via production kiosk web server).
-   - [ ] Launch Chromium in kiosk fullscreen mode (`--kiosk --kiosk-printing --noerrdialogs --disable-translate`).
-2. **Display & Visual Calibration:**
-   - [ ] Verify 60 FPS rendering under native display resolution using DevTools performance overlay.
-   - [ ] Validate color management on the venue display (tone mapping and neutral background #3e3c38).
-   - [ ] Confirm no frame drops during simultaneous grinding vibration, stream rendering, and camera orbit.
-3. **Sound System Audition:**
-   - [ ] Connect output to physical venue speakers.
-   - [ ] Verify first interaction un-mutes Web Audio cleanly without clicking or pop artifacts.
-   - [ ] Audition acoustic balance between grinder motor, transition pump hum, liquid trickle, and stream hiss.
-4. **Physical Visitor Rehearsal:**
-   - [ ] Conduct end-to-end rehearsal with an unfamiliar participant without verbal guidance.
-   - [ ] Confirm discoverability of the bean jar and hopper lid.
-   - [ ] Verify physical keyboard reset (`R` key) cleanly resets the installation for the next visitor.
+1. Review this branch and exact-commit CI evidence; merge into main only after review. This recovery run does not merge main.
+2. Deploy **dist/** on the exhibition computer with intended browser/display/input hardware. Record hardware, browser version and release SHA.
+3. Review high-quality camera, materials, coffee, steam and tactile motion. Audition synchronized sound/levels on venue speakers. Record R3 acceptance or defects.
+4. Run repeated complete sessions and interruption/reset recovery. Record FPS/spikes, loading, memory trend and audio; aim for stable 60 FPS where feasible and avoid sustained operation below 30 FPS. Record R5 acceptance.
+5. Rehearse with unfamiliar visitors without instructional UI; have the operator demonstrate launch/reset/failure recovery. Record discoverability findings, R6 acceptance and final exhibition approval.

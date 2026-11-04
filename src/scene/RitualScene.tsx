@@ -48,12 +48,17 @@ export function RitualScene() {
       console.warn('[Ritual] asset calibration notes', model.report.notes);
     }
 
-    if (import.meta.env.DEV || window.location.search.includes('test')) {
+    if (import.meta.env.MODE === 'e2e') {
       const host = window as unknown as { __ritual?: Record<string, unknown> };
       const api = (host.__ritual = host.__ritual ?? {});
       api.model = model;
       api.assetReport = model.report;
       api.services = services;
+      return () => {
+        delete api.model;
+        delete api.assetReport;
+        delete api.services;
+      };
     }
   }, [model, services]);
 

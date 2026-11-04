@@ -17,10 +17,10 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: 'npm'
@@ -29,29 +29,64 @@ jobs:
         run: npm ci
 
       - name: Typecheck
+        id: typecheck
         run: npm run typecheck
 
       - name: Lint
+        id: lint
         run: npm run lint
 
       - name: Unit & Domain tests
+        id: unit
         run: npm test
 
       - name: Production build
+        id: build
         run: npm run build
 
       - name: Install Playwright browsers
         run: npx playwright install chromium --with-deps
 
       - name: Browser end-to-end tests
+        id: browser
         run: npm run test:e2e
+
+      - name: Production artifact smoke test
+        id: production
+        run: npm run test:production
+
+      - name: Record exact revision verification
+        if: always()
+        env:
+          CHECK_TYPECHECK: ${{ steps.typecheck.outcome }}
+          CHECK_LINT: ${{ steps.lint.outcome }}
+          CHECK_UNIT: ${{ steps.unit.outcome }}
+          CHECK_BUILD: ${{ steps.build.outcome }}
+          CHECK_BROWSER: ${{ steps.browser.outcome }}
+          CHECK_PRODUCTION: ${{ steps.production.outcome }}
+        run: |
+          python - <<'PY'
+          import json, os, pathlib
+          checks = {key.removeprefix('CHECK_').lower(): value for key, value in os.environ.items() if key.startswith('CHECK_')}
+          result = {
+              'commit': os.environ['GITHUB_SHA'],
+              'branch': os.environ['GITHUB_REF_NAME'],
+              'run_url': f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              'checks': checks,
+              'passed': all(value == 'success' for value in checks.values()),
+              'deployable_artifact': 'dist',
+              'test_only_artifact': 'dist-e2e',
+          }
+          pathlib.Path('test-results').mkdir(exist_ok=True)
+          pathlib.Path('test-results/release-verification.json').write_text(json.dumps(result, indent=2) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('### Exact revision verification\n```json\n' + json.dumps(result, indent=2) + '\n```\n')
+          PY
 
       - name: Upload Playwright artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: playwright-results
-          path: |
-            test-results/
-            screenshots/
+          path: test-results/
           retention-days: 7

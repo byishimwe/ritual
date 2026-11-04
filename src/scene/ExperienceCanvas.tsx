@@ -26,8 +26,8 @@ export function ExperienceCanvas() {
     <Canvas
       className="ritual-canvas"
       shadows={quality.shadows}
-      dpr={quality.dpr}
-      gl={{ antialias: true, alpha: false, powerPreference: 'high-performance' }}
+      dpr={import.meta.env.MODE === 'e2e' ? 0.5 : quality.dpr}
+      gl={{ antialias: import.meta.env.MODE !== 'e2e', alpha: false, powerPreference: 'high-performance' }}
       camera={{
         fov: CAMERA.fov,
         near: 0.05,

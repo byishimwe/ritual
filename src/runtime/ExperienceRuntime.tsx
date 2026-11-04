@@ -1,5 +1,6 @@
 import { useFrame, useThree } from '@react-three/fiber';
 import { useEffect, useMemo, useRef } from 'react';
+import gsap from 'gsap';
 import { audio } from '../audio/audioEngine';
 import { advanceSimulation, SimulationClock } from '../domain/simulationClock';
 import { createDirector } from '../motion/experienceDirector';
@@ -19,26 +20,7 @@ export function ExperienceRuntime() {
   const services = useServices();
   const gl = useThree((state) => state.gl);
 
-  const isAutomated = typeof navigator !== 'undefined' && Boolean(navigator.webdriver);
-  const timeScale = useMemo(() => {
-    if (typeof window === 'undefined') return 1;
-    const param = new URLSearchParams(window.location.search).get('timeScale');
-    if (param) {
-      const val = parseFloat(param);
-      if (Number.isFinite(val) && val > 0 && val <= 5) return val;
-    }
-    return 1;
-  }, []);
-
-  const clock = useMemo(
-    () =>
-      new SimulationClock(
-        isAutomated || timeScale > 1
-          ? { maxFrameDelta: 1.0, maxSubsteps: 120 }
-          : undefined,
-      ),
-    [isAutomated, timeScale],
-  );
+  const clock = useMemo(() => new SimulationClock(), []);
   const tracker = useMemo(() => new VisibilityTracker(), []);
   const contextLost = useRef(false);
 
@@ -48,19 +30,37 @@ export function ExperienceRuntime() {
     return () => director.dispose();
   }, [services]);
 
-  // Development and test inspection handle: used by the browser test harness
-  // to read authoritative state and advance simulation. Never attached in an
-  // exhibition visitor session.
+  // Compile-time authorization: only the separate, non-deployable E2E artifact.
   useEffect(() => {
-    if (!import.meta.env.DEV && !window.location.search.includes('test')) return;
+    if (import.meta.env.MODE !== 'e2e') return;
     const host = window as unknown as { __ritual?: Record<string, unknown> };
+    const events: unknown[] = [];
+    const unsubscribe = engine.subscribe((event) => {
+      events.push({ at: performance.now(), event, generation: engine.getState().session.generation });
+      if (events.length > 60) events.shift();
+    });
     host.__ritual = {
       ...(host.__ritual ?? {}),
       engine,
+      events,
+      advanceMotion: (seconds: number) => {
+        // Exercise the real timelines, transforms and completion callbacks.
+        // Never substitute a domain completion command for physical motion.
+        for (let remaining = seconds; remaining > 1e-9; remaining -= 1 / 60) {
+          gsap.globalTimeline.totalTime(gsap.globalTimeline.totalTime() + Math.min(remaining, 1 / 60), false);
+        }
+      },
       advance: (seconds: number) => {
         advanceSimulation(engine, seconds);
         publishEngineState();
       },
+    };
+    return () => {
+      unsubscribe();
+      delete host.__ritual?.engine;
+      delete host.__ritual?.advance;
+      delete host.__ritual?.events;
+      delete host.__ritual?.advanceMotion;
     };
   }, []);
 
@@ -128,7 +128,7 @@ export function ExperienceRuntime() {
 
   useFrame((_state, delta) => {
     advanceFrame(engine, clock, {
-      deltaSeconds: delta * timeScale,
+      deltaSeconds: delta,
       nowMs: Date.now(),
       suspended: document.hidden || contextLost.current,
     });

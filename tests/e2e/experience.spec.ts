@@ -56,13 +56,13 @@ interface OrbitState {
   };
 }
 
-async function boot(page: Page, query = '?quality=low&timeScale=2&test=true'): Promise<void> {
+async function boot(page: Page, query = '?quality=low'): Promise<void> {
   await page.goto(`/${query}`);
   await page.waitForFunction(
     () => Boolean((window as never as { __ritual?: { engine?: unknown; project?: unknown } }).__ritual?.project),
   );
   await page.waitForFunction(() => !document.querySelector('.ritual-loader'), null, { timeout: 30000 });
-  await page.waitForTimeout(400);
+  await waitForCamera(page);
 }
 
 async function snapshot(page: Page): Promise<Snapshot> {
@@ -141,6 +141,7 @@ async function project(page: Page, x: number, y: number, z: number): Promise<Poi
 }
 
 async function clickWorld(page: Page, x: number, y: number, z: number): Promise<void> {
+  await waitForCamera(page);
   const point = await project(page, x, y, z);
   await page.mouse.move(point.x, point.y);
   await page.mouse.down();
@@ -152,8 +153,9 @@ async function dragWorld(
   page: Page,
   from: [number, number, number],
   to: [number, number, number],
-  steps = 26,
+  steps = 10,
 ): Promise<void> {
+  await waitForCamera(page);
   const start = await project(page, ...from);
   const end = await project(page, ...to);
   await page.mouse.move(start.x, start.y);
@@ -168,6 +170,7 @@ async function dragWorld(
 }
 
 async function waitForMachine(page: Page, machine: string, timeout = 30000): Promise<void> {
+  if (machine === 'OFF' && (await snapshot(page)).machine === 'RESETTING') await advanceMotion(page, 1.4);
   await page.waitForFunction(
     (expected) =>
       (window as never as { __ritual: { engine: { getState: () => { machine: string } } } }).__ritual.engine
@@ -206,99 +209,117 @@ async function fastForwardToMachine(page: Page, target: string, timeoutSec = 20)
   await waitForMachine(page, target, 10000);
 }
 
-/** Clicks the lid where it actually is, open or closed. */
-async function clickLid(page: Page): Promise<void> {
-  const point = await page.evaluate(() => {
-    const api = (window as never as {
-      __ritual: {
-        THREE: typeof import('three');
-        model: { lid: import('three').Object3D };
-        camera: import('three').Camera;
-      };
-    }).__ritual;
-    const box = new api.THREE.Box3().setFromObject(api.model.lid);
-    const projected = box.getCenter(new api.THREE.Vector3()).project(api.camera);
-    const rect = document.querySelector('canvas')!.getBoundingClientRect();
-    return {
-      x: rect.left + (projected.x * 0.5 + 0.5) * rect.width,
-      y: rect.top + (-projected.y * 0.5 + 0.5) * rect.height,
-    };
-  });
-  await page.mouse.move(point.x, point.y);
-  await page.mouse.down();
-  await page.waitForTimeout(80);
-  await page.mouse.up();
+async function advanceCoffee(page: Page, key: 'cupVolume' | 'missedVolume' | 'overflowVolume', minimum: number): Promise<void> {
+  await page.evaluate(({ key, minimum }) => {
+    const api = (window as never as { __ritual: { engine: { getState: () => { coffee: Record<string, number> } }; advance: (seconds: number) => void } }).__ritual;
+    for (let elapsed = 0; api.engine.getState().coffee[key] <= minimum && elapsed < 20; elapsed += 0.05) api.advance(0.05);
+  }, { key, minimum });
+  expect((await snapshot(page)).coffee[key]).toBeGreaterThan(minimum);
 }
 
-/** Open hopper → transfer beans → close → power on. */
+/** Stable camera, rather than a wall-clock guess under software rendering. */
+async function waitForCamera(page: Page): Promise<void> {
+  await advanceMotion(page, 1.2);
+  await page.waitForFunction(() => {
+    const api = (window as never as { __ritual: { cameraMotion: () => { active: boolean; pending: unknown } } }).__ritual;
+    const motion = api.cameraMotion();
+    return !motion.active && !motion.pending;
+  }, null, { polling: 100, timeout: 30000 });
+}
+
+async function advanceMotion(page: Page, seconds: number): Promise<void> {
+  await page.evaluate(seconds => {
+    (window as never as { __ritual: { advanceMotion: (seconds: number) => void } }).__ritual.advanceMotion(seconds);
+  }, seconds);
+}
+
+async function diagnostics(page: Page): Promise<unknown> {
+  return page.evaluate(() => {
+    const api = (window as never as { __ritual: {
+      engine: { getState: () => unknown };
+      input: () => unknown;
+      camera: { position: { toArray: () => number[] } };
+      cameraMotion: () => unknown;
+      services: { motion?: { diagnostics?: () => unknown } };
+      events: unknown[];
+    } }).__ritual;
+    return { at: performance.now(), state: api.engine.getState(), input: api.input(),
+      camera: api.camera.position.toArray(), cameraMotion: api.cameraMotion(),
+      motion: api.services.motion?.diagnostics?.(), events: api.events };
+  });
+}
+
+test.afterEach(async ({ page }, info) => {
+  if (info.status === info.expectedStatus) return;
+  await info.attach('interaction-state', { body: JSON.stringify(await diagnostics(page).catch(String), null, 2), contentType: 'application/json' });
+  if (!page.isClosed()) await info.attach('interaction-screen', { body: await page.screenshot(), contentType: 'image/png' });
+});
+
+/** Aim at the registered rotating proxy and verify the nearest raycast hit. */
+async function clickLid(page: Page): Promise<void> {
+  await waitForCamera(page);
+  const point = await page.evaluate(() => {
+    const api = (window as never as { __ritual: {
+      THREE: typeof import('three');
+      services: { targets: Map<string, import('three').Object3D> };
+      camera: import('three').Camera;
+    } }).__ritual;
+    const lid = api.services.targets.get('lid')!;
+    lid.updateWorldMatrix(true, true);
+    api.camera.updateWorldMatrix(true, false);
+    const projected = lid.getWorldPosition(new api.THREE.Vector3()).project(api.camera);
+    const ray = new api.THREE.Raycaster();
+    ray.setFromCamera(new api.THREE.Vector2(projected.x, projected.y), api.camera);
+    const hits = ray.intersectObjects([...api.services.targets.values()], true);
+    if (hits[0]?.object !== lid) throw new Error(`Lid ray intercepted by ${hits[0]?.object.name ?? 'empty space'}`);
+    const rect = document.querySelector('canvas')!.getBoundingClientRect();
+    return { x: rect.left + (projected.x * 0.5 + 0.5) * rect.width,
+      y: rect.top + (-projected.y * 0.5 + 0.5) * rect.height };
+  });
+  await page.mouse.click(point.x, point.y, { delay: 80 });
+}
+
+async function setHopper(page: Page, target: 'OPEN' | 'CLOSED', accelerated = true): Promise<void> {
+  await test.step(`Hopper: pointer command and physical ${target} completion`, async () => {
+    const before = await snapshot(page);
+    if (before.hopper !== target) {
+      expect(before.hopperMotion, 'Cannot toggle a valid in-progress transition').toBe('IDLE');
+      await clickLid(page);
+      // A missed or rejected command fails here, independently of its tween.
+      await expect.poll(async () => (await snapshot(page)).hopper, { message: 'Lid click must register the target state' }).toBe(target);
+    }
+    if (accelerated) await advanceMotion(page, 0.8);
+    // Never toggle again just because GSAP is slow. Its actual completion
+    // callback must settle the state and physical hinge.
+    await expect.poll(async () => {
+      const state = await snapshot(page);
+      return [state.hopper, state.hopperMotion];
+    }, { message: 'Await HOPPER_MOTION_COMPLETE without reversing motion', timeout: 30000 }).toEqual([target, 'IDLE']);
+  });
+}
+
+/** Open hopper → transfer beans → close → power on, using physical inputs. */
 async function prepare(page: Page): Promise<void> {
-  await clickLid(page);
-  try {
-    await page.waitForFunction(() => {
-      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
-        .__ritual.engine.getState();
-      return s.hopper === 'OPEN' && s.hopperMotion === 'IDLE';
-    }, null, { timeout: 3000 });
-  } catch {
-    await clickLid(page);
-    await page.waitForFunction(() => {
-      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
-        .__ritual.engine.getState();
-      return s.hopper === 'OPEN' && s.hopperMotion === 'IDLE';
-    }, null, { timeout: 30000 });
-  }
-  await page.waitForTimeout(1400);
-
-  await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 26);
-  try {
-    await page.waitForFunction(
-      () =>
-        (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } }).__ritual.engine
-          .getState()
-          .beansLoaded,
-      null,
-      { timeout: 3000 },
-    );
-  } catch {
-    await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 26);
-    await page.waitForFunction(
-      () =>
-        (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } }).__ritual.engine
-          .getState()
-          .beansLoaded,
-      null,
-      { timeout: 30000 },
-    );
-  }
-
-  await clickLid(page);
-  try {
-    await page.waitForFunction(() => {
-      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
-        .__ritual.engine.getState();
-      return s.hopper === 'CLOSED' && s.hopperMotion === 'IDLE';
-    }, null, { timeout: 3000 });
-  } catch {
-    await clickLid(page);
-    await page.waitForFunction(() => {
-      const s = (window as never as { __ritual: { engine: { getState: () => Record<string, string> } } })
-        .__ritual.engine.getState();
-      return s.hopper === 'CLOSED' && s.hopperMotion === 'IDLE';
-    }, null, { timeout: 30000 });
-  }
-  await page.waitForTimeout(300);
-
-  await clickWorld(page, 0, 0.2739, 0.1602);
-  await waitForMachine(page, 'IDLE_ON', 30000);
-  // Power-on camera transition lasts 1.15 s; wait for the framing to settle
-  // before subsequent clicks project coordinates against the camera.
-  await page.waitForTimeout(1200);
+  await setHopper(page, 'OPEN');
+  await waitForCamera(page);
+  await test.step('Beans: physical drag and completed transfer', async () => {
+    await dragWorld(page, [-0.196, 0.05, 0.212], [0, 0.464, -0.0636], 10);
+    await advanceMotion(page, 1.7);
+    await expect.poll(async () => (await snapshot(page)).beanSupply, { timeout: 30000 }).toBe('LOADED');
+    expect((await snapshot(page)).beansLoaded).toBe(true);
+  });
+  await setHopper(page, 'CLOSED');
+  await test.step('Power: physical button', async () => {
+    await clickWorld(page, 0, 0.2739, 0.1602);
+    await waitForMachine(page, 'IDLE_ON');
+    await waitForCamera(page);
+  });
 }
 
 async function alignCup(page: Page): Promise<void> {
   // The ready-state camera move lasts 1.15 s. Projecting the drag against a
   // camera that is still easing would aim at pixels that no longer exist.
-  await page.waitForTimeout(1300);
+  await waitForCamera(page);
   const before = await snapshot(page);
   // Grab at the drag plane so the pointer-to-centre offset is zero; the cup
   // edge-grab test exercises a non-zero offset deliberately.
@@ -320,7 +341,94 @@ test('initial scene is the canonical untouched state', async ({ page }) => {
   expect(state.coffee.cupVolume).toBe(0);
   // The cup starts visibly away from the receiving position.
   expect(Math.abs(state.cup.x)).toBeGreaterThan(0.06);
-  await page.screenshot({ path: 'screenshots/10-hero.png' });
+  await page.screenshot({ path: 'test-results/captures/10-hero.png' });
+});
+
+test('hopper pointer target follows both physical poses and repeated cycles', async ({ page }) => {
+  await boot(page);
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    await setHopper(page, 'OPEN');
+    await setHopper(page, 'CLOSED');
+  }
+  const evidence = await page.evaluate(() => {
+    const a = (window as never as { __ritual: { events: { event: { type: string } }[]; model: { lid: { rotation: { x: number } } } } }).__ritual;
+    return { events: a.events.map(e => e.event.type), angle: a.model.lid.rotation.x };
+  });
+  expect(evidence.events.filter(e => e === 'HOPPER_OPENING')).toHaveLength(3);
+  expect(evidence.events.filter(e => e === 'HOPPER_CLOSING')).toHaveLength(3);
+  expect(evidence.events.filter(e => e === 'HOPPER_OPENED')).toHaveLength(3);
+  expect(evidence.events.filter(e => e === 'HOPPER_CLOSED')).toHaveLength(3);
+  expect(evidence.angle).toBeCloseTo(0, 5);
+});
+
+test('slow rendered frames never turn a successful hopper opening into a toggle retry', async ({ page }) => {
+  await boot(page);
+  await page.evaluate(() => {
+    const frame = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = callback => frame(time => {
+      // Reproduce GSAP's >500 ms lag smoothing under software WebGL.
+      const end = performance.now() + 550;
+      while (performance.now() < end) { /* deliberate rendering stall */ }
+      callback(time);
+    });
+  });
+  const started = Date.now();
+  await setHopper(page, 'OPEN', false);
+  expect(Date.now() - started).toBeGreaterThan(3000);
+  const evidence = await page.evaluate(() => {
+    const a = (window as never as { __ritual: { events: { event: { type: string } }[]; model: { lid: { rotation: { x: number } } } } }).__ritual;
+    return { events: a.events.map(e => e.event.type), angle: a.model.lid.rotation.x };
+  });
+  expect(evidence.events.filter(e => e === 'HOPPER_OPENING')).toHaveLength(1);
+  expect(evidence.events).not.toContain('HOPPER_CLOSING');
+  expect(evidence.events).toContain('HOPPER_OPENED');
+  expect(evidence.angle).toBeCloseTo(-96 * Math.PI / 180, 5);
+});
+
+test('unexpected capture loss cancels bean and cup drags, then releases the camera', async ({ page }) => {
+  await boot(page);
+  await setHopper(page, 'OPEN');
+  for (const kind of ['beanSupply', 'cup'] as const) {
+    await waitForCamera(page);
+    const state = await snapshot(page);
+    const point = kind === 'cup'
+      ? await project(page, state.cup.x, 0.0724, state.cup.z)
+      : await project(page, -0.196, 0.05, 0.212);
+    await page.mouse.move(point.x, point.y);
+    await page.mouse.down();
+    await expect.poll(async () => kind === 'cup' ? (await snapshot(page)).cupDragging : (await snapshot(page)).beanSupply === 'DRAGGING').toBe(true);
+    // Flush pending capture so this is a genuine loss of acquired capture,
+    // rather than cancelling setPointerCapture before gotpointercapture.
+    await page.mouse.move(point.x + 1, point.y);
+    await page.evaluate(() => {
+      const canvas = document.querySelector('canvas')!;
+      const api = (window as never as { __ritual: { input: () => { gesture: { pointerId: number } } } }).__ritual;
+      canvas.releasePointerCapture(api.input().gesture.pointerId);
+    });
+    // The browser delivers lostpointercapture on its next pointer event.
+    await page.mouse.move(point.x + 2, point.y);
+    await expect.poll(async () => kind === 'cup' ? (await snapshot(page)).cupDragging : (await snapshot(page)).beanSupply === 'DRAGGING').toBe(false);
+    await page.mouse.up();
+    expect((await snapshot(page)).beansLoaded).toBe(false);
+    expect((await snapshot(page)).beanSupply).toBe('AVAILABLE');
+  }
+  const before = await orbit(page);
+  await dragEmpty(page, -120, 0);
+  expect(Math.abs((await orbit(page)).azimuth - before.azimuth)).toBeGreaterThan(0.05);
+});
+
+test('reset while holding a prop clears capture and stale ownership', async ({ page }) => {
+  await boot(page);
+  const state = await snapshot(page);
+  const point = await project(page, state.cup.x, 0.0724, state.cup.z);
+  await page.mouse.move(point.x, point.y);
+  await page.mouse.down();
+  expect((await snapshot(page)).cupDragging).toBe(true);
+  await page.keyboard.press('r');
+  await page.mouse.up();
+  await waitForMachine(page, 'OFF');
+  expect((await snapshot(page)).cupDragging).toBe(false);
+  expect((await snapshot(page)).generation).toBe(1);
 });
 
 test('beans cannot be added through a closed hopper', async ({ page }) => {
@@ -335,19 +443,19 @@ test('beans cannot be added through a closed hopper', async ({ page }) => {
 test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) => {
   await boot(page);
   await prepare(page);
-  await page.screenshot({ path: 'screenshots/11-prepared.png' });
+  await page.screenshot({ path: 'test-results/captures/11-prepared.png' });
 
   await clickWorld(page, -0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'GRINDING');
   await page.waitForTimeout(1400);
-  await page.screenshot({ path: 'screenshots/12-grinding.png' });
+  await page.screenshot({ path: 'test-results/captures/12-grinding.png' });
 
-  await waitForMachine(page, 'BREWING');
+  await fastForwardToMachine(page, 'BREWING');
   await page.waitForTimeout(900);
-  await page.screenshot({ path: 'screenshots/13-brewing.png' });
+  await page.screenshot({ path: 'test-results/captures/13-brewing.png' });
 
   await fastForwardToMachine(page, 'READY_TO_POUR');
-  await page.screenshot({ path: 'screenshots/14-ready.png' });
+  await page.screenshot({ path: 'test-results/captures/14-ready.png' });
 
   await alignCup(page);
   const aligned = await snapshot(page);
@@ -357,14 +465,8 @@ test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) =>
   await waitForMachine(page, 'POURING');
   // Software rendering in headless browsers advances simulated time more
   // slowly than wall time, so wait on the coffee itself rather than a clock.
-  await page.waitForFunction(
-    () =>
-      (window as never as { __ritual: { engine: { getState: () => { coffee: { cupVolume: number } } } } })
-        .__ritual.engine.getState().coffee.cupVolume > 0.2,
-    null,
-    { timeout: 30000 },
-  );
-  await page.screenshot({ path: 'screenshots/15-pouring.png' });
+  await advanceCoffee(page, 'cupVolume', 0.2);
+  await page.screenshot({ path: 'test-results/captures/15-pouring.png' });
 
   const midPour = await snapshot(page);
   expect(midPour.coffee.cupVolume).toBeGreaterThan(0.2);
@@ -372,7 +474,7 @@ test('full ritual: prepare, brew, pour into an aligned cup', async ({ page }) =>
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'COMPLETE');
   await page.waitForTimeout(700);
-  await page.screenshot({ path: 'screenshots/16-complete.png' });
+  await page.screenshot({ path: 'test-results/captures/16-complete.png' });
 
   const done = await snapshot(page);
   expect(done.coffee.cupVolume).toBeLessThanOrEqual(1.0001);
@@ -409,14 +511,8 @@ test('misaligned cup misses the coffee entirely', async ({ page }) => {
   // Leave the cup where it started, clearly off the receiving position.
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'POURING');
-  await page.waitForFunction(
-    () =>
-      (window as never as { __ritual: { engine: { getState: () => { coffee: { missedVolume: number } } } } })
-        .__ritual.engine.getState().coffee.missedVolume > 0.15,
-    null,
-    { timeout: 30000 },
-  );
-  await page.screenshot({ path: 'screenshots/17-miss.png' });
+  await advanceCoffee(page, 'missedVolume', 0.21);
+  await page.screenshot({ path: 'test-results/captures/17-miss.png' });
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'COMPLETE');
 
@@ -424,6 +520,34 @@ test('misaligned cup misses the coffee entirely', async ({ page }) => {
   expect(state.coffee.cupVolume).toBe(0);
   expect(state.coffee.missedVolume).toBeGreaterThan(0.2);
   expect(Math.abs(state.coffee.totalReleasedVolume - state.coffee.missedVolume - state.coffee.inFlightVolume)).toBeLessThan(0.004);
+});
+
+test('partial capture splits coffee and moving the cup changes the next arrivals', async ({ page }) => {
+  await boot(page);
+  await prepare(page);
+  await clickWorld(page, -0.036, 0.2739, 0.1602);
+  await waitForMachine(page, 'GRINDING');
+  await clickWorld(page, -0.036, 0.2739, 0.1602);
+  await fastForwardToMachine(page, 'READY_TO_POUR');
+  await waitForCamera(page);
+  const initial = await snapshot(page);
+  await dragWorld(page, [initial.cup.x, 0.0724, initial.cup.z], [0.031, 0.0724, 0.1299]);
+  expect((await snapshot(page)).cup.x).toBeCloseTo(0.031, 3);
+  await clickWorld(page, 0.036, 0.2739, 0.1602);
+  await waitForMachine(page, 'POURING');
+  await advanceCoffee(page, 'cupVolume', 0.25);
+  const partial = await snapshot(page);
+  expect(partial.coffee.missedVolume).toBeGreaterThan(0.05);
+  await dragWorld(page, [partial.cup.x, 0.0724, partial.cup.z], [0, 0.0724, 0.1299]);
+  // Let in-flight parcels resolve, then measure newly aligned output.
+  await page.evaluate(() => (window as never as { __ritual: { advance: (s: number) => void } }).__ritual.advance(0.2));
+  const aligned = await snapshot(page);
+  await page.evaluate(() => (window as never as { __ritual: { advance: (s: number) => void } }).__ritual.advance(0.5));
+  const after = await snapshot(page);
+  expect(after.coffee.cupVolume).toBeGreaterThan(aligned.coffee.cupVolume + 0.05);
+  expect(after.coffee.missedVolume - aligned.coffee.missedVolume).toBeLessThan(0.002);
+  const events = await page.evaluate(() => (window as never as { __ritual: { events: { event: { type: string } }[] } }).__ritual.events.map(e => e.event.type));
+  expect(events.filter(e => e === 'GRINDING_STARTED')).toHaveLength(1);
 });
 
 test('unattended pouring fills the cup, then overflows and exhausts the batch', async ({ page }) => {
@@ -436,14 +560,8 @@ test('unattended pouring fills the cup, then overflows and exhausts the batch', 
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'POURING');
-  await page.waitForFunction(
-    () =>
-      (window as never as { __ritual: { engine: { getState: () => { coffee: { overflowVolume: number } } } } })
-        .__ritual.engine.getState().coffee.overflowVolume > 0.05,
-    null,
-    { timeout: 30000 },
-  );
-  await page.screenshot({ path: 'screenshots/18-overflow.png' });
+  await advanceCoffee(page, 'overflowVolume', 0.05);
+  await page.screenshot({ path: 'test-results/captures/18-overflow.png' });
 
   await fastForwardToMachine(page, 'COMPLETE', 25);
   const state = await snapshot(page);
@@ -512,7 +630,7 @@ test('orbit stays inside its approved azimuth, polar and zoom envelope', async (
   await setCamera(page, 155, 74, 1.7);
   await page.keyboard.press('r');
   await waitForMachine(page, 'OFF');
-  await page.waitForTimeout(1400);
+  await waitForCamera(page);
   const reset = await orbit(page);
   expect(reset.azimuth).toBeCloseTo((30 * Math.PI) / 180, 2);
   expect(reset.polar).toBeCloseTo((74 * Math.PI) / 180, 2);
@@ -528,7 +646,7 @@ test('a cinematic shot survives the short Make button gesture', async ({ page })
 
   await clickWorld(page, -0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'GRINDING');
-  await page.waitForTimeout(1400);
+  await waitForCamera(page);
 
   const after = await orbit(page);
   // Shot C is 28° at 1.08 m. Losing the event would leave the camera at 35°/1.4 m.
@@ -596,14 +714,7 @@ test('overflow stays on the stage when the cup is moved, and reset clears it', a
 
   await clickWorld(page, 0.036, 0.2739, 0.1602);
   await waitForMachine(page, 'POURING');
-  await page.waitForFunction(
-    () =>
-      (window as never as { __ritual: { engine: { getState: () => { coffee: { cupVolume: number } } } } })
-        .__ritual.engine.getState().coffee.cupVolume > 0.995,
-    null,
-    { timeout: 30000 },
-  );
-  await page.waitForTimeout(600);
+  await advanceCoffee(page, 'overflowVolume', 0.02);
 
   const overflowing = await snapshot(page);
   const firstOverflow = overflowing.coffee.spills.find((spill) => spill.source === 'OVERFLOW');
