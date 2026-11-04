@@ -1,13 +1,13 @@
 # Ritual — Recovery and Release Verification
 
 Date: 4 November 2026 (Africa/Johannesburg). Branch: `feat/ritual-complete-implementation`.
-Status: software candidate verification in progress; exhibition approval pending.
+Status: verified software release candidate; exhibition approval pending.
 
 ## Revision and evidence
 
 This report is versioned with the candidate. The final revision is the Git commit containing this report (`git rev-parse HEAD`). Every CI run records its immutable SHA, branch, run URL and individual check outcomes in its job summary and uploaded `playwright-results/release-verification.json`. Use that exact-SHA evidence; a previous workflow does not verify a later commit. A report cannot embed the hash of its own containing commit.
 
-Final CI results require the exact-revision workflow readback; local results are recorded below.
+Implementation revision: `4f411dec1341f1a39311e15917c7ba77597f3c11`. [CI run 41893545931](https://github.com/byishimwe/ritual/actions/runs/41893545931) completed successfully. Its artifact 13357095456 was downloaded: the attestation matches that full SHA and all six required checks passed. Integration: 18/18, 483.87 seconds; production: 2/2, 507.11 seconds; neither suite had skips, unexpected failures or flaky results. The final documentation-only revision is identified by the containing Git commit, and receives the same complete workflow. Its exact SHA/run readback is included in the release handoff; the implementation run above is not presented as verification of a later commit.
 
 ## Audited baseline and root cause
 
@@ -64,24 +64,26 @@ Failures attach step context, state, events/rejection reasons, generation, point
 
 Environment: Windows desktop, Node 24.19.0, system Chrome; Linux/Node 22/Chromium verification is the separate CI result. Software-WebGL probes were used for diagnosis, including the slow bean timeline and a newly added partial-capture threshold calibration; these exploratory failures were corrected, not reported as successful release runs.
 
-CI: pending exact-commit execution. Workflow timeout remains 20 minutes. The new real-time production journey has a 600-second total budget: its unchanged 0.1-second frame clamp requires about 94 wall seconds for 9.4 simulation seconds at 1 FPS, plus real physical motion, loading, fill and reset. This is separate from the unchanged original interaction-test timeouts. Continuous CI trace screencasting is disabled to avoid per-frame GPU readback starvation; action/DOM/source traces, explicit visual checkpoints and failure screenshots remain. PNG comparisons run in Node, outside the renderer. Its JSON reports include test counts, skips, failures and durations; its exact-revision evidence records each required check outcome. No claim of green CI is made from local results.
+CI implementation result: **success**, verified from completed job 126796915084 and downloaded exact-SHA attestation. All setup, install, typecheck, lint, unit, build, browser installation, integration, production, attestation, upload and cleanup steps succeeded. Unit: 93/93 in 904 ms; production Vite build: 468 ms (plus successful tsc). Clean install: zero vulnerabilities. Browser totals above include server setup. The normal production journey alone took 457.58 seconds; this is software-rendering verification, not a target-hardware performance result.
 
-Warnings: the existing approximately 1.32 MB minified / 373.4 kB gzipped main JavaScript bundle exceeds Vite's 500 kB warning threshold. This is recorded for target-hardware loading/performance review; it was not suppressed or hidden. The dependencies were updated to Vite 8.3.5 and Vitest 5.1.0; a clean install and audit report zero vulnerabilities.
+Workflow timeout remains 20 minutes. The new real-time production journey has a 600-second total budget: its unchanged 0.1-second frame clamp requires about 94 wall seconds for 9.4 simulation seconds at 1 FPS, plus real physical motion, loading, fill and reset. This is separate from the unchanged original interaction-test timeouts. Continuous CI trace screencasting is disabled to avoid per-frame GPU readback starvation; action/DOM/source traces, explicit visual checkpoints and failure screenshots remain. PNG comparisons run in Node, outside the renderer. JSON reports include test counts, skips, failures and durations; exact-revision evidence records each required check outcome.
+
+Warnings: the existing approximately 1.32 MB minified / 373.4 kB gzipped main JavaScript bundle exceeds Vite's 500 kB warning threshold. Playwright reports slow integration/production files under software rendering. Node prints `punycode`/`url.parse` deprecations in GitHub action dependencies; the action runtimes themselves are current. These warnings were inspected, not suppressed or hidden. Target-hardware loading/performance remains an acceptance task. The dependencies were updated to Vite 8.3.5 and Vitest 5.1.0; a clean install and audit report zero vulnerabilities.
 
 ## Asset and visual evidence
 
 The Blender GLB and adapter were preserved. GLB SHA-256: `0348111ade1d552f89b602f665a0f35dded0270f33b1e68f15cc5018a26e56d6`.
 
-Production pouring and reset screenshots were inspected: the machine/studio composition, loaded hopper, stream into the aligned cup and canonical reset are present. Low-resolution integration captures establish behavior, not artistic acceptance. Headless software WebGL is not an exhibition performance benchmark.
+Production pouring and reset screenshots were inspected locally and in the successful Linux artifact: the machine/studio composition, loaded hopper, stream into the aligned cup and canonical reset are present. Production assertions confirmed no relevant console/page errors or required asset failures. Low-resolution integration captures establish behavior, not artistic acceptance. Headless software WebGL is not an exhibition performance benchmark. No known failing software requirement remains in the tested scope; human acceptance and compatibility limits below remain open.
 
 ## R1–R6 release gates
 
 | Gate | Status | Evidence / outstanding acceptance |
 | --- | --- | --- |
-| R1 — Functional Integrity | Pending final verification | Exact-SHA workflow, domain timing/guards and complete pointer journey. |
-| R2 — Physical Consistency | Pending final verification | Proxy targeting, full/partial/missed capture, finite batch, overflow, stationary spills, conservation and reset; final human plausibility review remains. |
+| R1 — Functional Integrity | Passed in tested software environments | Exact-SHA workflow, domain timing/guards and complete pointer journey. |
+| R2 — Physical Consistency | Automated checks passed; human acceptance pending | Proxy targeting, full/partial/missed capture, finite batch, overflow, stationary spills, conservation and reset; final human plausibility review remains. |
 | R3 — Cinematic Quality | Pending owner acceptance | Art direction preserved; normal/high-quality motion, materials, lighting, coffee and synchronized sound need approval on target display. |
-| R4 — Engineering Reliability | Pending final verification | Automated checks, capture-loss/reset ownership, build isolation and exact-SHA workflow. |
+| R4 — Engineering Reliability | Passed in tested software environments | Automated checks, capture-loss/reset ownership, build isolation and exact-SHA workflow. |
 | R5 — Performance & Compatibility | Pending target hardware | Local Chrome/CI Chromium do not establish sustained FPS, venue compatibility, memory stability or venue audio. |
 | R6 — Exhibition Operation | Pending deployment/rehearsal | Runbook/version identification exist; approved target deployment and unfamiliar visitor rehearsal remain. |
 
