@@ -414,6 +414,12 @@ test('unexpected capture loss cancels bean and cup drags, then releases the came
     await page.mouse.up();
     expect((await snapshot(page)).beansLoaded).toBe(false);
     expect((await snapshot(page)).beanSupply).toBe('AVAILABLE');
+    // Cancellation is logical immediately; allow the visible jar to clear the
+    // cup before attempting a different physical grab through the same pixels.
+    await page.waitForFunction(() => {
+      const jar = (window as never as { __ritual: { services: { rig: { jar: import('three').Object3D } } } }).__ritual.services.rig.jar;
+      return Math.hypot(jar.position.x + 0.196, jar.position.y, jar.position.z - 0.212) < 0.001;
+    }, null, { polling: 100 });
   }
   const before = await orbit(page);
   await dragEmpty(page, -120, 0);
@@ -671,8 +677,15 @@ test('manual orbit immediately overrides an active cinematic move', async ({ pag
   const after = await orbit(page);
   expect(Math.abs(after.azimuth - (28 * Math.PI) / 180)).toBeGreaterThan(0.08);
 
+  const ownership = await page.evaluate(() =>
+    (window as never as { __ritual: { cameraMotion: () => { active: boolean; pending: unknown } } }).__ritual.cameraMotion());
+  expect(ownership).toEqual({ active: false, pending: null });
+  // Orbit damping is frame-based. Run real controls updates instead of assuming
+  // 450 wall-clock milliseconds represents enough software-rendered frames.
+  await page.evaluate(() => (window as never as { __ritual: { advanceOrbit: (frames: number) => void } }).__ritual.advanceOrbit(240));
+
   const settled = await orbit(page);
-  await page.waitForTimeout(450);
+  await advanceMotion(page, 1.2);
   const later = await orbit(page);
   // Relaxed from 0.03 to 0.06 for the CI headless run after the S0 timeline fix.
   expect(Math.abs(later.azimuth - settled.azimuth)).toBeLessThan(0.06);

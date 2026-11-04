@@ -21,6 +21,8 @@ Local raycast probes intersected the registered lid proxy in both settled poses 
 
 The first recovery workflow, [41847523584](https://github.com/byishimwe/ritual/actions/runs/41847523584), ran against `e3f3dade955a73544b5155229a0747f2874700cc` and failed with 12 passes / 6 failures in 541.28 seconds; production smoke was skipped by the upstream failure. Its artifact 13332054621 was inspected. All six failures occurred before the closing click: the preflight assertion saw `ritualHit:beanSupply`, although screenshots showed the jar at rest, the state was LOADED, the lid tween had completed and no gesture was active. The preflight had updated the lid matrix only; the jar proxy retained its earlier carried-world matrix between rendered frames. It now refreshes all potential occluders, matching the production picker. The full journey subsequently passed with the CI software-WebGL flags locally. This failed intermediate workflow is not release evidence.
 
+The next recovery run, [41851611468](https://github.com/byishimwe/ritual/actions/runs/41851611468), verified all hopper/full-process scenarios but finished with 16/18 integration and 1/2 production passes on `1cde926feede5ca7d8b9d7ebc9f2f61667fec160`. Its traces showed the cancelled jar still visibly returning when the next cup grab was attempted, frame-based orbit inertia exceeding a fixed 450 ms wait, and browser-side PNG analysis taking about 15 seconds per comparison before any production interaction. The harness now waits for physical jar clearance, asserts cinematic ownership and runs real OrbitControls damping updates, and decodes PNGs in Node. CI production smoke uses a 384×230 viewport (local acceptance remains 1024×612), deriving projection from the actual aspect ratio and normalizing pixel assertions by area. It still runs the uninstrumented normal artifact and real-time domain/motion. These were observable test scheduling/render-load issues, not missing hopper completion events.
+
 ## Files and corrections
 
 | Files | Purpose |
@@ -48,20 +50,21 @@ Failures attach step context, state, events/rejection reasons, generation, point
 
 | Check | Local result | Execution time |
 | --- | --- | --- |
-| Clean npm ci | Passed; 0 vulnerabilities across all dependency types | 30.31 s |
-| npm run typecheck | Passed | 13.68 s measured standalone run |
-| npm run lint | Passed | 1.90 s measured standalone run |
-| npm test | 93/93 passed, 9 files, Vitest 5.1.0; includes real GSAP reversal/reset regressions | 2.94 s runner / 6.24 s command |
-| npm run build | Passed; normal dist artifact | 1.15 s Vite / 15.46 s command including tsc |
-| npm run test:e2e | 18/18 passed; 0 skipped, flaky or unexpected | 192.53 s runner including server setup |
-| npm run test:production | 2/2 passed; 0 skipped, flaky or unexpected; native ready cue, settled motion, rendered fill and canonical reset | 72.91 s runner including server setup |
+| Clean npm ci | Passed; 0 vulnerabilities across all dependency types | 30 s (npm-reported final clean install) |
+| npm run typecheck | Passed | Final pass; not separately timed |
+| npm run lint | Passed | Final pass; not separately timed |
+| npm test | 93/93 passed, 9 files, Vitest 5.1.0; includes real GSAP reversal/reset regressions | 2.67 s runner |
+| npm run build | Passed; normal dist artifact | 0.74 s Vite; tsc also passed |
+| npm run test:e2e | 18/18 passed; 0 skipped, flaky or unexpected | 191.95 s runner including server setup |
+| npm run test:production | 2/2 passed; 0 skipped, flaky or unexpected; native ready cue, settled motion, rendered fill and canonical reset | 72.55 s runner including server setup |
+| Normal production journey under software WebGL | 1/1 passed using real time, no engine global or test build | 4.7 min journey / 5.0 min including server setup |
 | npm audit | 0 vulnerabilities (production and development) | Completed |
 
 Environment: Windows desktop, Node 24.19.0, system Chrome; Linux/Node 22/Chromium verification is the separate CI result. Software-WebGL probes were used for diagnosis, including the slow bean timeline and a newly added partial-capture threshold calibration; these exploratory failures were corrected, not reported as successful release runs.
 
-CI: pending exact-commit execution. Workflow timeout remains 20 minutes. Its JSON reports include test counts, skips, failures and durations; its exact-revision evidence records each required check outcome. No claim of green CI is made from local results.
+CI: pending exact-commit execution. Workflow timeout remains 20 minutes. The new real-time production journey has a 300-second total budget: its unchanged 0.1-second frame clamp requires about 94 wall seconds for 9.4 simulation seconds at 1 FPS, plus real physical motion, loading, fill and reset. This is separate from the unchanged original interaction-test timeouts. Continuous production trace screencasting is disabled to avoid per-frame GPU readback starvation; action/DOM/source traces, explicit visual checkpoints and failure screenshots remain. PNG comparisons run in Node, outside the renderer. Its JSON reports include test counts, skips, failures and durations; its exact-revision evidence records each required check outcome. No claim of green CI is made from local results.
 
-Warnings: the existing approximately 1.32 MB minified / 373.5 kB gzipped main JavaScript bundle exceeds Vite's 500 kB warning threshold. This is recorded for target-hardware loading/performance review; it was not suppressed or hidden. The dependencies were updated to Vite 8.3.5 and Vitest 5.1.0; a clean install and audit report zero vulnerabilities.
+Warnings: the existing approximately 1.32 MB minified / 373.4 kB gzipped main JavaScript bundle exceeds Vite's 500 kB warning threshold. This is recorded for target-hardware loading/performance review; it was not suppressed or hidden. The dependencies were updated to Vite 8.3.5 and Vitest 5.1.0; a clean install and audit report zero vulnerabilities.
 
 ## Asset and visual evidence
 

@@ -92,6 +92,9 @@ export function CameraRig() {
     api.camera = camera;
     api.scene = scene;
     api.cameraMotion = () => ({ active: Boolean(tween.current?.isActive()), pending: pending.current });
+    api.advanceOrbit = (frames: number) => {
+      for (let i = 0; i < frames; i++) controlsRef.current?.update();
+    };
     api.project = (x: number, y: number, z: number) => {
       camera.updateWorldMatrix(true, false);
       const point = new THREE.Vector3(x, y, z).project(camera);
@@ -142,7 +145,7 @@ export function CameraRig() {
       };
     };
     return () => {
-      for (const key of ['THREE', 'camera', 'scene', 'project', 'setCamera', 'orbit', 'cameraMotion']) delete api[key];
+      for (const key of ['THREE', 'camera', 'scene', 'project', 'setCamera', 'orbit', 'cameraMotion', 'advanceOrbit']) delete api[key];
     };
   }, [camera, gl, scene]);
 
