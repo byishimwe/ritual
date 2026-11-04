@@ -15,6 +15,12 @@ jobs:
     name: Verify Quality & Release Gates
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      typecheck: ${{ steps.typecheck.outcome }}
+      lint: ${{ steps.lint.outcome }}
+      unit: ${{ steps.unit.outcome }}
+      build: ${{ steps.build.outcome }}
+      browser: ${{ steps.browser.outcome }}
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -51,30 +57,80 @@ jobs:
         id: browser
         run: npm run test:e2e
 
+      - name: Upload integration artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-integration-results
+          path: test-results/
+          retention-days: 7
+
+  production:
+    name: Verify Normal Production Artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      production: ${{ steps.production.outcome }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium --with-deps
+
+      # Builds the normal dist artifact itself; no dependency on E2E output.
       - name: Production artifact smoke test
         id: production
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: npm run test:production
+
+      - name: Upload production artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: playwright-production-results
+          path: test-results/
+          retention-days: 7
+
+  evidence:
+    name: Record Exact Revision Evidence
+    needs: [verify, production]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
 
       - name: Record exact revision verification
         if: always()
         env:
-          CHECK_TYPECHECK: ${{ steps.typecheck.outcome }}
-          CHECK_LINT: ${{ steps.lint.outcome }}
-          CHECK_UNIT: ${{ steps.unit.outcome }}
-          CHECK_BUILD: ${{ steps.build.outcome }}
-          CHECK_BROWSER: ${{ steps.browser.outcome }}
-          CHECK_PRODUCTION: ${{ steps.production.outcome }}
+          CHECK_TYPECHECK: ${{ needs.verify.outputs.typecheck }}
+          CHECK_LINT: ${{ needs.verify.outputs.lint }}
+          CHECK_UNIT: ${{ needs.verify.outputs.unit }}
+          CHECK_BUILD: ${{ needs.verify.outputs.build }}
+          CHECK_BROWSER: ${{ needs.verify.outputs.browser }}
+          CHECK_PRODUCTION: ${{ needs.production.outputs.production }}
+          JOB_VERIFY: ${{ needs.verify.result }}
+          JOB_PRODUCTION: ${{ needs.production.result }}
         run: |
           python - <<'PY'
           import json, os, pathlib
           checks = {key.removeprefix('CHECK_').lower(): value for key, value in os.environ.items() if key.startswith('CHECK_')}
+          jobs = {key.removeprefix('JOB_').lower(): value for key, value in os.environ.items() if key.startswith('JOB_')}
           result = {
               'commit': os.environ['GITHUB_SHA'],
               'branch': os.environ['GITHUB_REF_NAME'],
               'run_url': f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
               'checks': checks,
-              'passed': all(value == 'success' for value in checks.values()),
+              'jobs': jobs,
+              'passed': all(value == 'success' for value in [*checks.values(), *jobs.values()]),
               'deployable_artifact': 'dist',
               'test_only_artifact': 'dist-e2e',
           }
@@ -84,10 +140,10 @@ jobs:
               summary.write('### Exact revision verification\n```json\n' + json.dumps(result, indent=2) + '\n```\n')
           PY
 
-      - name: Upload Playwright artifacts
+      - name: Upload revision evidence
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: playwright-results
+          name: release-verification
           path: test-results/
           retention-days: 7
