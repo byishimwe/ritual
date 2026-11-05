@@ -15,6 +15,9 @@ export default defineConfig({
     : [['list'], ['json', { outputFile: 'test-results/production-results.json' }]],
   use: {
     ...integration.use,
+    // Regular Chromium's new headless mode matches the visitor browser more
+    // closely than the separate headless shell, including WebGL/compositing.
+    channel: process.env.PLAYWRIGHT_CHANNEL || (process.env.CI ? 'chromium' : 'chrome'),
     baseURL: 'http://127.0.0.1:5184',
     viewport: process.env.CI ? { width: 384, height: 230 } : { width: 1024, height: 612 },
     // Continuous trace screencasts force GPU readbacks on every frame and can
